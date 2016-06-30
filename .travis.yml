@@ -1,0 +1,9 @@
+addons:
+  apt:
+    packages:
+      - zookeeper
+language: node_js
+node_js:
+  - "0.12"
+install: "make"
+script: "make test"

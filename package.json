@@ -1,0 +1,25 @@
+{
+  "name": "zkstream",
+  "version": "0.1.0",
+  "description": "",
+  "main": "lib/index.js",
+  "dependencies": {
+    "assert-plus": "^1.0.0",
+    "jsbn": "^0.1.0",
+    "mooremachine": "^1.2.0",
+    "node-uuid": "^1.4.7",
+    "vasync": "^1.6.3",
+    "verror": "^1.6.1"
+  },
+  "devDependencies": {
+    "json": "^9.0.3",
+    "ps-node": "^0.1.2",
+    "sinon": "^1.17.3",
+    "tape": "^4.4.0"
+  },
+  "scripts": {
+    "test": "tape test/*.test.js"
+  },
+  "author": "",
+  "license": "MPL-2.0"
+}
