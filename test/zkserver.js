@@ -99,9 +99,16 @@ ZKServer.prototype.state_starting = function (on) {
 
 ZKServer.prototype.state_spawning = function (on) {
 	var self = this;
+
 	var opts = {};
 	opts.env = {};
+	opts.env.HOME = process.env.HOME;
+	opts.env.USER = process.env.USER;
+	opts.env.LOGNAME = process.env.LOGNAME;
+	opts.env.PATH = process.env.PATH;
 	opts.env.ZOO_LOG_DIR = this.zk_tmpdir;
+	opts.env.JVMFLAGS = '-Dzookeeper.log.dir=' + this.zk_tmpdir;
+
 	this.zk_kid = mod_cproc.spawn(this.zk_cmd, ['start-foreground',
 	    this.zk_config], opts);
 	on(this.zk_kid, 'error', function (err) {
