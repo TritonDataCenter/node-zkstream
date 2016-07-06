@@ -99,8 +99,11 @@ ZKServer.prototype.state_starting = function (on) {
 
 ZKServer.prototype.state_spawning = function (on) {
 	var self = this;
+	var opts = {};
+	opts.env = {};
+	opts.env.ZOO_LOG_DIR = this.zk_tmpdir;
 	this.zk_kid = mod_cproc.spawn(this.zk_cmd, ['start-foreground',
-	    this.zk_config]);
+	    this.zk_config], opts);
 	on(this.zk_kid, 'error', function (err) {
 		if (err.code === 'ENOENT') {
 			self.gotoState('starting');

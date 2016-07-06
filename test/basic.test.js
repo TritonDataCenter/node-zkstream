@@ -58,7 +58,7 @@ mod_tape.test('find the test object', function (t) {
 		var req = zkc.list('/');
 		req.once('reply', function (pkt) {
 			t.strictEqual(pkt.opcode, 'GET_CHILDREN');
-			t.deepEqual(pkt.children, ['zookeeper', 'foo']);
+			t.deepEqual(pkt.children.sort(), ['foo', 'zookeeper']);
 
 			var req2 = zkc.get('/foo');
 			req2.once('reply', function (pkt2) {
