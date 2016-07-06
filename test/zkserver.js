@@ -15,6 +15,7 @@ const mod_util = require('util');
 const mod_assert = require('assert-plus');
 const mod_ps = require('ps-node');
 const mod_events = require('events');
+const mod_uuid = require('node-uuid');
 
 function ZKServer(opts) {
 	this.zk_cmds = ['zkServer.sh', 'zkServer',
@@ -23,6 +24,16 @@ function ZKServer(opts) {
 	    '/opt/local/sbin/zkServer.sh'];
 	this.zk_opts = opts;
 	this.zk_tokill = [];
+	var uuid = (this.zk_uuid = mod_uuid.v4());
+	this.zk_tmpdir = '/tmp/' + uuid;
+	this.zk_config = this.zk_tmpdir + '/zoo.cfg';
+	mod_fs.mkdirSync(this.zk_tmpdir);
+	mod_fs.writeFileSync(this.zk_config,
+	    'tickTime=2000\n' +
+	    'initLimit=10\n' +
+	    'syncLimit=5\n' +
+	    'dataDir=' + this.zk_tmpdir + '/data\n' +
+	    'clientPort=2181\n');
 	if (opts && opts.command)
 		this.zk_cmds.unshift(opts.command);
 	mod_fsm.FSM.call(this, 'starting');
@@ -88,7 +99,8 @@ ZKServer.prototype.state_starting = function (on) {
 
 ZKServer.prototype.state_spawning = function (on) {
 	var self = this;
-	this.zk_kid = mod_cproc.spawn(this.zk_cmd, ['start-foreground']);
+	this.zk_kid = mod_cproc.spawn(this.zk_cmd, ['start-foreground',
+	    this.zk_config]);
 	on(this.zk_kid, 'error', function (err) {
 		if (err.code === 'ENOENT') {
 			self.gotoState('starting');
@@ -203,6 +215,7 @@ ZKServer.prototype.state_stopping = function (on) {
 		console.error('zk: killing %d', pid);
 		mod_cproc.spawnSync('kill', [pid]);
 	});
+	mod_cproc.spawnSync('rm', ['-fr', this.zk_tmpdir]);
 };
 
 ZKServer.prototype.state_stopped = function () {
