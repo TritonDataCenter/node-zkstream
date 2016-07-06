@@ -17,7 +17,10 @@ const mod_ps = require('ps-node');
 const mod_events = require('events');
 
 function ZKServer(opts) {
-	this.zk_cmds = ['zkServer.sh', 'zkServer'];
+	this.zk_cmds = ['zkServer.sh', 'zkServer',
+	    '/usr/share/zookeeper/bin/zkServer.sh',
+	    '/usr/local/bin/zkServer.sh',
+	    '/opt/local/sbin/zkServer.sh'];
 	this.zk_opts = opts;
 	this.zk_tokill = [];
 	if (opts && opts.command)
