@@ -1,12 +1,12 @@
 {
   "name": "zkstream",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "",
   "main": "lib/index.js",
   "dependencies": {
     "assert-plus": "^1.0.0",
     "jsbn": "^0.1.0",
-    "mooremachine": "^1.2.0",
+    "mooremachine": "^2.0.0",
     "node-uuid": "^1.4.7",
     "vasync": "^1.6.3",
     "verror": "^1.6.1"

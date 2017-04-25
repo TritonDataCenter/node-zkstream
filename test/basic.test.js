@@ -15,27 +15,28 @@ var zk;
 
 mod_tape.test('start zk server', function (t) {
 	zk = new mod_zk.ZKServer();
-	zk.onState('running', function () {
-		t.end();
+	zk.on('stateChanged', function (st) {
+		if (st === 'running')
+			t.end();
 	});
 });
 
 mod_tape.test('simple connect and ping', function (t) {
-	var zkc = new mod_client.ClientFSM({});
-	var sock = mod_net.connect({
+	var zkc = new mod_client.ClientFSM({
 		host: 'localhost',
 		port: 2181
 	});
-	zkc.attach(sock);
+	zkc.connect();
 
-	zkc.onState('connected', function () {
-		zkc.ping(function (err) {
-			t.error(err);
-			sock.end();
-			zkc.onState('closed', function () {
-				t.end();
+	zkc.on('stateChanged', function (st) {
+		if (st === 'connected') {
+			zkc.ping(function (err) {
+				t.error(err);
+				zkc.close();
 			});
-		});
+		} else if (st === 'closed') {
+			t.end();
+		}
 	});
 });
 
@@ -47,14 +48,18 @@ mod_tape.test('set up test object', function (t) {
 });
 
 mod_tape.test('find the test object', function (t) {
-	var zkc = new mod_client.ClientFSM({});
-	var sock = mod_net.connect({
+	var zkc = new mod_client.ClientFSM({
 		host: 'localhost',
 		port: 2181
 	});
-	zkc.attach(sock);
+	zkc.connect();
 
-	zkc.onState('connected', function () {
+	zkc.on('stateChanged', function (st) {
+		if (st === 'closed')
+			t.end();
+		if (st !== 'connected')
+			return;
+
 		var req = zkc.list('/');
 		req.once('reply', function (pkt) {
 			t.strictEqual(pkt.opcode, 'GET_CHILDREN');
@@ -64,10 +69,7 @@ mod_tape.test('find the test object', function (t) {
 			req2.once('reply', function (pkt2) {
 				t.strictEqual(
 				    pkt2.data.toString('ascii'), 'hi');
-				sock.end();
-				zkc.onState('closed', function () {
-					t.end();
-				});
+				zkc.close();
 			});
 			req2.once('error', function (err) {
 				t.error(err);
@@ -82,89 +84,91 @@ mod_tape.test('find the test object', function (t) {
 });
 
 mod_tape.test('delete the test object', function (t) {
-	var zkc = new mod_client.ClientFSM({});
-	var sock = mod_net.connect({
+	var zkc = new mod_client.ClientFSM({
 		host: 'localhost',
 		port: 2181
 	});
-	zkc.attach(sock);
+	zkc.connect();
 
-	zkc.onState('connected', function () {
+	zkc.on('stateChanged', function (st) {
+		if (st === 'closed')
+			t.end();
+		if (st !== 'connected')
+			return;
 		zkc.delete('/foo', 0, function (err) {
 			t.error(err);
-			sock.end();
-			zkc.onState('closed', function () {
-				t.end();
-			});
+			zkc.close();
 		});
 	});
 });
 
 mod_tape.test('ask for a non-existent node', function (t) {
-	var zkc = new mod_client.ClientFSM({});
-	var sock = mod_net.connect({
+	var zkc = new mod_client.ClientFSM({
 		host: 'localhost',
 		port: 2181
 	});
-	zkc.attach(sock);
+	zkc.connect();
 
-	zkc.onState('connected', function () {
+	zkc.on('stateChanged', function (st) {
+		if (st === 'closed')
+			t.end();
+		if (st !== 'connected')
+			return;
+
 		var req = zkc.stat('/foo');
 		req.once('reply', function (pkt) {
 			t.fail('Expected an error');
-			sock.end();
-			zkc.onState('closed', function () {
-				t.end();
-			});
+			zkc.close();
 		});
 		req.once('error', function (err) {
 			t.ok(err);
 			t.strictEqual(err.code, 'NO_NODE');
-			sock.end();
-			zkc.onState('closed', function () {
-				t.end();
-			});
+			zkc.close();
 		});
 	});
 });
 
 mod_tape.test('create a new node', function (t) {
-	var zkc = new mod_client.ClientFSM({});
-	var sock = mod_net.connect({
+	var zkc = new mod_client.ClientFSM({
 		host: 'localhost',
 		port: 2181
 	});
-	zkc.attach(sock);
+	zkc.connect();
 
-	zkc.onState('connected', function () {
+	zkc.on('stateChanged', function (st) {
+		if (st === 'closed')
+			t.end();
+		if (st !== 'connected')
+			return;
+
 		var d = new Buffer('hi there', 'ascii');
 		zkc.create('/foo', d, {}, function (err, path) {
 			t.error(err);
 			t.strictEqual(path, '/foo');
-			zk.cli('get', '/foo', function (err, output) {
-				t.error(err);
+			zk.cli('get', '/foo', function (err2, output) {
+				t.error(err2);
 				t.strictEqual(output, 'hi there\n');
-				sock.end();
-				zkc.onState('closed', function () {
-					t.end();
-				});
+				zkc.close();
 			});
 		});
 	});
 });
 
 mod_tape.test('data watcher', function (t) {
-	var zkc = new mod_client.ClientFSM({});
-	var sock = mod_net.connect({
+	var zkc = new mod_client.ClientFSM({
 		host: 'localhost',
 		port: 2181
 	});
-	zkc.attach(sock);
+	zkc.connect();
 
 	var data = new Buffer('hi there', 'ascii');
 	var count = 0;
 
-	zkc.onState('connected', function () {
+	zkc.on('stateChanged', function (st) {
+		if (st === 'closed')
+			t.end();
+		if (st !== 'connected')
+			return;
 		zkc.watcher('/foo').on('dataChanged', function (newData) {
 			t.ok(Buffer.isBuffer(newData));
 			t.strictEqual(newData.toString('base64'),
@@ -176,28 +180,26 @@ mod_tape.test('data watcher', function (t) {
 		zk.cli('set', '/foo', 'hi', function (err) {
 			t.error(err);
 			t.strictEqual(count, 2);
-			sock.end();
-			zkc.onState('closed', function () {
-				t.end();
-			});
-		})
+			zkc.close();
+		});
 	});
 });
 
 mod_tape.test('delete it while watching', function (t) {
-	var zkc = new mod_client.ClientFSM({});
-	var sock = mod_net.connect({
+	var zkc = new mod_client.ClientFSM({
 		host: 'localhost',
 		port: 2181
 	});
-	zkc.attach(sock);
+	zkc.connect();
 
-	zkc.onState('connected', function () {
+	zkc.on('stateChanged', function (st) {
+		if (st === 'closed')
+			t.end();
+		if (st !== 'connected')
+			return;
+
 		zkc.watcher('/foo').on('deleted', function () {
-			sock.end();
-			zkc.onState('closed', function () {
-				t.end();
-			});
+			zkc.close();
 		});
 		zkc.stat('/foo', function (err, stat) {
 			t.error(err);
@@ -209,8 +211,9 @@ mod_tape.test('delete it while watching', function (t) {
 });
 
 mod_tape.test('stop zk server', function (t) {
-	zk.onState('stopped', function () {
-		t.end();
+	zk.on('stateChanged', function (st) {
+		if (st === 'stopped')
+			t.end();
 	});
 	zk.stop();
 });

@@ -92,12 +92,12 @@ ZKServer.prototype.cli = function () {
 	});
 };
 
-ZKServer.prototype.state_starting = function (on) {
+ZKServer.prototype.state_starting = function (S) {
 	this.zk_cmd = this.zk_cmds.shift();
-	this.gotoState('spawning');
+	S.gotoState('spawning');
 };
 
-ZKServer.prototype.state_spawning = function (on) {
+ZKServer.prototype.state_spawning = function (S) {
 	var self = this;
 
 	var opts = {};
@@ -111,12 +111,12 @@ ZKServer.prototype.state_spawning = function (on) {
 
 	this.zk_kid = mod_cproc.spawn(this.zk_cmd, ['start-foreground',
 	    this.zk_config], opts);
-	on(this.zk_kid, 'error', function (err) {
+	S.on(this.zk_kid, 'error', function (err) {
 		if (err.code === 'ENOENT') {
-			self.gotoState('starting');
+			S.gotoState('starting');
 		} else {
 			self.zk_lastError = err;
-			self.gotoState('error');
+			S.gotoState('error');
 		}
 	});
 	var output = '';
@@ -126,22 +126,22 @@ ZKServer.prototype.state_spawning = function (on) {
 	this.zk_kid.stdout.on('data', function (data) {
 		console.error('zk: %j', data.toString('ascii'));
 	});
-	on(this.zk_kid.stderr, 'data', function (data) {
+	S.on(this.zk_kid.stderr, 'data', function (data) {
 		output += data.toString('ascii');
 		var lines = output.split('\n');
 		lines = lines.map(function (l) {
 			return (/^Using config: [^ \t]+$/.test(l));
 		});
 		if (lines.length > 0)
-			self.gotoState('findkids');
+			S.gotoState('findkids');
 	});
-	on(this.zk_kid, 'close', function (code) {
+	S.on(this.zk_kid, 'close', function (code) {
 		self.zk_lastError = new Error('Exited with status ' + code);
-		self.gotoState('error');
+		S.gotoState('error');
 	});
 };
 
-ZKServer.prototype.state_findkids = function (on) {
+ZKServer.prototype.state_findkids = function (S) {
 	var self = this;
 	var req = new mod_events.EventEmitter();
 
@@ -153,61 +153,61 @@ ZKServer.prototype.state_findkids = function (on) {
 			req.emit('result', res);
 	});
 
-	on(req, 'error', function (err) {
+	S.on(req, 'error', function (err) {
 		self.zk_lastError = err;
-		self.gotoState('error');
+		S.gotoState('error');
 	});
 
-	on(req, 'result', function (res) {
+	S.on(req, 'result', function (res) {
 		self.zk_tokill = res.map(function (ps) {
 			return (parseInt(ps.pid, 10));
 		});
 		self.zk_tokill.push(self.zk_kid.pid);
-		self.gotoState('testing');
+		S.gotoState('testing');
 	});
 };
 
-ZKServer.prototype.state_testing = function (on, once, timeout) {
+ZKServer.prototype.state_testing = function (S) {
 	var self = this;
 	var cmd = this.zk_cmd.replace('zkServer', 'zkCli');
 
-	timeout(10000, function () {
+	S.timeout(10000, function () {
 		self.zk_lastError = new Error('Timeout');
-		self.gotoState('error');
+		S.gotoState('error');
 	});
 
-	timeout(1000, function () {
+	S.timeout(1000, function () {
 		var kid = mod_cproc.spawn(cmd, ['ls', '/']);
-		on(kid, 'close', function (code) {
+		S.on(kid, 'close', function (code) {
 			if (code === 0) {
-				self.gotoState('running');
+				S.gotoState('running');
 			} else {
 				self.zk_lastError = new Error(
 				    'Testing command exited with status ' +
 				    code);
-				self.gotoState('error');
+				S.gotoState('error');
 			}
 		});
 	});
 
-	on(self.zk_kid, 'close', function (code) {
+	S.on(self.zk_kid, 'close', function (code) {
 		self.zk_lastError = new Error(
 		    'Exited with status ' + code);
-		self.gotoState('error');
+		S.gotoState('error');
 	});
 };
 
-ZKServer.prototype.state_running = function (on) {
+ZKServer.prototype.state_running = function (S) {
 	var self = this;
-	on(this.zk_kid, 'close', function (code) {
+	S.on(this.zk_kid, 'close', function (code) {
 		self.zk_lastError = new Error('Exited with status ' + code);
-		self.gotoState('error');
+		S.gotoState('error');
 	});
-	on(this, 'stopAsserted', function () {
-		self.gotoState('stopping');
+	S.on(this, 'stopAsserted', function () {
+		S.gotoState('stopping');
 	});
-	on(process, 'exit', function () {
-		self.gotoState('stopping');
+	S.on(process, 'exit', function () {
+		S.gotoState('stopping');
 	});
 };
 
@@ -216,10 +216,9 @@ ZKServer.prototype.stop = function () {
 	this.emit('stopAsserted');
 };
 
-ZKServer.prototype.state_stopping = function (on) {
-	var self = this;
-	on(this.zk_kid, 'close', function (code) {
-		self.gotoState('stopped');
+ZKServer.prototype.state_stopping = function (S) {
+	S.on(this.zk_kid, 'close', function (code) {
+		S.gotoState('stopped');
 	});
 	this.zk_tokill.forEach(function (pid) {
 		console.error('zk: killing %d', pid);
