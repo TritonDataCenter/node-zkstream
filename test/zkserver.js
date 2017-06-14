@@ -18,22 +18,51 @@ const mod_events = require('events');
 const mod_uuid = require('node-uuid');
 
 function ZKServer(opts) {
+	var self = this;
 	this.zk_cmds = ['zkServer.sh', 'zkServer',
 	    '/usr/share/zookeeper/bin/zkServer.sh',
 	    '/usr/local/bin/zkServer.sh',
 	    '/opt/local/sbin/zkServer.sh'];
-	this.zk_opts = opts;
+	this.zk_opts = opts || {};
 	this.zk_tokill = [];
 	var uuid = (this.zk_uuid = mod_uuid.v4());
 	this.zk_tmpdir = '/tmp/' + uuid;
+	this.zk_servers = this.zk_opts.servers;
+	if (this.zk_servers === undefined) {
+		this.zk_servers = {
+			'1': {
+				'clientPort': 2181,
+				'quorumPort': 2888,
+				'electionPort': 3888
+			}
+		};
+	}
+	this.zk_serverId = this.zk_opts.serverId || '1';
+	this.zk_server = this.zk_servers[this.zk_serverId];
 	this.zk_config = this.zk_tmpdir + '/zoo.cfg';
 	mod_fs.mkdirSync(this.zk_tmpdir);
-	mod_fs.writeFileSync(this.zk_config,
-	    'tickTime=2000\n' +
-	    'initLimit=10\n' +
-	    'syncLimit=5\n' +
-	    'dataDir=' + this.zk_tmpdir + '/data\n' +
-	    'clientPort=2181\n');
+	mod_fs.mkdirSync(this.zk_tmpdir + '/data');
+	var config = [];
+	config.push('tickTime=2000');
+	config.push('initLimit=10');
+	config.push('syncLimit=5');
+	config.push('dataDir=' + this.zk_tmpdir + '/data');
+	config.push('clientPort=' + this.zk_server.clientPort);
+	Object.keys(this.zk_servers).forEach(function (sid) {
+		config.push('server.' + sid + '=localhost:' +
+		    self.zk_servers[sid].quorumPort + ':' +
+		    self.zk_servers[sid].electionPort);
+	});
+	mod_fs.writeFileSync(this.zk_config, config.join('\n') + '\n');
+	mod_fs.writeFileSync(this.zk_tmpdir + '/data/myid', this.zk_serverId);
+	mod_fs.writeFileSync(this.zk_tmpdir + '/log4j.properties',
+	    'log4j.rootCategory=INFO,console\n' +
+	    'log4j.rootLogger=INFO,console\n' +
+	    'log4j.appender.console = org.apache.log4j.ConsoleAppender\n' +
+	    'log4j.appender.console.Target = System.out\n' +
+	    'log4j.appender.console.layout = org.apache.log4j.PatternLayout\n' +
+	    'log4j.appender.console.layout.ConversionPattern = ' +
+	        '%d{yyyy-MM-dd HH:mm:ss}|%p|%c{1}|%L|%m%n\n');
 	if (opts && opts.command)
 		this.zk_cmds.unshift(opts.command);
 	mod_fsm.FSM.call(this, 'starting');
@@ -43,12 +72,35 @@ mod_util.inherits(ZKServer, mod_fsm.FSM);
 ZKServer.prototype.cli = function () {
 	mod_assert.strictEqual(this.getState(), 'running');
 
+	var opts = {};
+	opts.cwd = this.zk_tmpdir;
+	opts.env = {};
+	opts.env.HOME = process.env.HOME;
+	opts.env.USER = process.env.USER;
+	opts.env.LOGNAME = process.env.LOGNAME;
+	opts.env.PATH = process.env.PATH;
+	opts.env.ZOOCFGDIR = this.zk_tmpdir;
+	opts.env.ZOO_LOG_DIR = this.zk_tmpdir;
+	opts.env.ZOO_LOG4J_PROP = 'ERROR,console';
+	opts.env.JVMFLAGS = '-Dzookeeper.log.dir=' + this.zk_tmpdir;
+
 	var args = Array.prototype.slice.apply(arguments);
 	var cb = args.pop();
 	mod_assert.func(cb, 'callback');
+	for (var i = 0; i < args.length; ++i) {
+		if (/[ \t]/.test(args[i])) {
+			/* JSSTYLED */
+			args[i] = '"' + args[i].replace(/"/g, '\\"') + '"';
+		}
+	}
+	args = args.join(' ');
 	var cmd = this.zk_cmd.replace('zkServer', 'zkCli');
 
-	var kid = mod_cproc.spawn(cmd, args);
+	var kid = mod_cproc.spawn(
+	     cmd, ['-server', 'localhost:' + this.zk_server.clientPort], opts);
+
+	kid.stdin.write(args + '\n');
+	kid.stdin.end();
 
 	var output = '';
 	kid.stdout.on('data', function (d) {
@@ -61,19 +113,34 @@ ZKServer.prototype.cli = function () {
 	kid.on('close', function (code) {
 		if (code === 0) {
 			output = output.split('\n');
-			if (/^Connecting to /.test(output[0]))
-				output.shift();
-			if (output[0] === '')
-				output.shift();
-			if (/^WATCHER::/.test(output[0]))
-				output.shift();
-			if (output[0] === '')
-				output.shift();
-			if (/^WatchedEvent.*type:None/.test(output[0]))
-				output.shift();
-			if (output[0] === '')
-				output.shift();
-			cb(null, output.join('\n'));
+			var shifted = true;
+			while (output.length > 0 && shifted) {
+				shifted = false;
+				var parts = output[0].split('|');
+				if (parts.length === 5 &&
+				    /^[A-Z]+$/.test(parts[1])) {
+					output.shift();
+					shifted = true;
+				}
+				if (/^\[zk: localhost.*\] /.test(output[0])) {
+					output.shift();
+					shifted = true;
+				}
+				if (/^Welcome to ZooKeeper!/.test(output[0]) ||
+				    /^JLine support/.test(output[0]) ||
+				    /^Connecting to /.test(output[0]) ||
+				    /^WATCHER::/.test(output[0]) ||
+				    /^WatchedEvent.*type:None/.test(
+				    output[0]) || output[0] === '') {
+					output.shift();
+					shifted = true;
+				}
+			}
+			if (/^\[zk: localhost.*\] /.test(
+			    output[output.length - 1])) {
+				output.pop();
+			}
+			cb(null, output.join('\n') + '\n');
 
 		} else {
 			errout = errout.split('\n');
@@ -101,12 +168,15 @@ ZKServer.prototype.state_spawning = function (S) {
 	var self = this;
 
 	var opts = {};
+	opts.cwd = this.zk_tmpdir;
 	opts.env = {};
 	opts.env.HOME = process.env.HOME;
 	opts.env.USER = process.env.USER;
 	opts.env.LOGNAME = process.env.LOGNAME;
 	opts.env.PATH = process.env.PATH;
+	opts.env.ZOOCFGDIR = this.zk_tmpdir;
 	opts.env.ZOO_LOG_DIR = this.zk_tmpdir;
+	opts.env.ZOO_LOG4J_PROP = 'INFO,console';
 	opts.env.JVMFLAGS = '-Dzookeeper.log.dir=' + this.zk_tmpdir;
 
 	this.zk_kid = mod_cproc.spawn(this.zk_cmd, ['start-foreground',
@@ -119,21 +189,39 @@ ZKServer.prototype.state_spawning = function (S) {
 			S.gotoState('error');
 		}
 	});
-	var output = '';
+	var logs = '';
 	this.zk_kid.stderr.on('data', function (data) {
 		console.error('zk: %j', data.toString('ascii'));
 	});
 	this.zk_kid.stdout.on('data', function (data) {
-		console.error('zk: %j', data.toString('ascii'));
-	});
-	S.on(this.zk_kid.stderr, 'data', function (data) {
-		output += data.toString('ascii');
-		var lines = output.split('\n');
-		lines = lines.map(function (l) {
-			return (/^Using config: [^ \t]+$/.test(l));
+		var str = data.toString('ascii');
+		logs += str;
+		var lines = logs.split('\n');
+		if (str.charAt(str.length - 1) === '\n') {
+			logs = '';
+		} else {
+			logs = lines[lines.length - 1];
+		}
+		lines.forEach(function (l) {
+			var parts = l.split('|');
+			if (parts.length === 5 && /^[A-Z]+$/.test(parts[1])) {
+				self.emit('zkLogLine', parts[0], parts[1],
+				    parts[2], parts[3], parts[4]);
+			}
 		});
-		if (lines.length > 0)
+	});
+	S.on(this, 'zkLogLine', function (date, level, klass, line, msg) {
+		var sc = Object.keys(self.zk_servers).length;
+		if (sc > 1 &&
+		    level === 'INFO' && klass === 'QuorumPeer' &&
+		    /^(LEADING|FOLLOWING)/.test(msg)) {
 			S.gotoState('findkids');
+		}
+		if (sc === 1 &&
+		    level === 'INFO' && klass === 'NIOServerCnxnFactory' &&
+		    /^binding to port/.test(msg)) {
+			S.gotoState('findkids');
+		}
 	});
 	S.on(this.zk_kid, 'close', function (code) {
 		self.zk_lastError = new Error('Exited with status ' + code);
@@ -159,6 +247,10 @@ ZKServer.prototype.state_findkids = function (S) {
 	});
 
 	S.on(req, 'result', function (res) {
+		if (res.length < 1) {
+			S.gotoState('findkids');
+			return;
+		}
 		self.zk_tokill = res.map(function (ps) {
 			return (parseInt(ps.pid, 10));
 		});
@@ -177,7 +269,9 @@ ZKServer.prototype.state_testing = function (S) {
 	});
 
 	S.timeout(1000, function () {
-		var kid = mod_cproc.spawn(cmd, ['ls', '/']);
+		var kid = mod_cproc.spawn(cmd, [
+		    '-server', 'localhost:' + self.zk_server.clientPort,
+		    'ls', '/']);
 		S.on(kid, 'close', function (code) {
 			if (code === 0) {
 				S.gotoState('running');
@@ -224,10 +318,10 @@ ZKServer.prototype.state_stopping = function (S) {
 		console.error('zk: killing %d', pid);
 		mod_cproc.spawnSync('kill', [pid]);
 	});
-	mod_cproc.spawnSync('rm', ['-fr', this.zk_tmpdir]);
 };
 
 ZKServer.prototype.state_stopped = function () {
+	mod_cproc.spawnSync('rm', ['-fr', this.zk_tmpdir]);
 	delete (this.zk_kid);
 };
 
