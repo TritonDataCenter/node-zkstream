@@ -10,6 +10,12 @@ const mod_tape = require('tape');
 
 const mod_zkbuf = require('../lib/zk-buffer');
 const mod_zkstreams = require('../lib/zk-streams');
+const mod_bunyan = require('bunyan');
+
+var log = mod_bunyan.createLogger({
+	name: 'zkstream-test',
+	level: process.env.LOG_LEVEL || 'info'
+});
 
 /* An example packet capture of "zkCli ls /" */
 var CAPTURE1 = [

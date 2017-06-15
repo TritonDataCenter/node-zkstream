@@ -10,6 +10,12 @@ const mod_tape = require('tape');
 const mod_zk = require('./zkserver');
 const mod_zkc = require('../lib/index');
 const mod_net = require('net');
+const mod_bunyan = require('bunyan');
+
+var log = mod_bunyan.createLogger({
+	name: 'zkstream-test',
+	level: process.env.LOG_LEVEL || 'info'
+});
 
 var zk;
 
@@ -23,6 +29,7 @@ mod_tape.test('start zk server', function (t) {
 
 mod_tape.test('simple connect and ping', function (t) {
 	var zkc = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: 2181
 	});
@@ -49,6 +56,7 @@ mod_tape.test('set up test object', function (t) {
 
 mod_tape.test('find the test object', function (t) {
 	var zkc = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: 2181
 	});
@@ -85,6 +93,7 @@ mod_tape.test('find the test object', function (t) {
 
 mod_tape.test('delete the test object', function (t) {
 	var zkc = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: 2181
 	});
@@ -104,6 +113,7 @@ mod_tape.test('delete the test object', function (t) {
 
 mod_tape.test('ask for a non-existent node', function (t) {
 	var zkc = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: 2181
 	});
@@ -130,6 +140,7 @@ mod_tape.test('ask for a non-existent node', function (t) {
 
 mod_tape.test('create a new node', function (t) {
 	var zkc = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: 2181
 	});
@@ -156,6 +167,7 @@ mod_tape.test('create a new node', function (t) {
 
 mod_tape.test('data watcher', function (t) {
 	var zkc = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: 2181
 	});
@@ -187,6 +199,7 @@ mod_tape.test('data watcher', function (t) {
 
 mod_tape.test('delete it while watching', function (t) {
 	var zkc = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: 2181
 	});
@@ -219,6 +232,7 @@ mod_tape.test('set up test object', function (t) {
 
 mod_tape.test('delete it while watching data', function (t) {
 	var zkc = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: 2181
 	});
@@ -257,6 +271,7 @@ mod_tape.test('set up test object', function (t) {
 
 mod_tape.test('children watcher', function (t) {
 	var zkc = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: 2181
 	});
@@ -306,12 +321,14 @@ mod_tape.test('session resumption with watcher', function (t) {
 	var closed = 0;
 
 	var zkc1 = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: 2181
 	});
 	zkc1.connect();
 
 	var zkc2 = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: 2181
 	});
@@ -369,7 +386,9 @@ mod_tape.test('session resumption with watcher', function (t) {
 		zkc2.stat('/foo', function (err, stat) {
 			t.error(err);
 
-			zkc1.zs_socket.destroy();
+			var sock = zkc1.zs_socket;
+			sock.emit('error', new Error('I killed it'));
+			sock.destroy();
 
 			var data = new Buffer('hello again');
 			zkc2.set('/foo', data, stat.version, function (err2) {

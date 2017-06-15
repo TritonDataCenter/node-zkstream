@@ -10,6 +10,12 @@ const mod_tape = require('tape');
 const mod_zk = require('./zkserver');
 const mod_zkc = require('../lib/index');
 const mod_net = require('net');
+const mod_bunyan = require('bunyan');
+
+var log = mod_bunyan.createLogger({
+	name: 'zkstream-test',
+	level: process.env.LOG_LEVEL || 'info'
+});
 
 var zk1, zk2, zk3;
 
@@ -61,6 +67,7 @@ mod_tape.test('start zk servers', function (t) {
 
 mod_tape.test('simple connect and ping #1', function (t) {
 	var zkc = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: zks['1'].clientPort
 	});
@@ -80,6 +87,7 @@ mod_tape.test('simple connect and ping #1', function (t) {
 
 mod_tape.test('simple connect and ping #3', function (t) {
 	var zkc = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: zks['3'].clientPort
 	});
@@ -101,11 +109,13 @@ mod_tape.test('write visibility', function (t) {
 	var connected = 0, closed = 0;
 
 	var zkc1 = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: zks['1'].clientPort
 	});
 	zkc1.connect();
 	var zkc2 = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: zks['2'].clientPort
 	});
@@ -158,11 +168,13 @@ mod_tape.test('cross-server data watch', function (t) {
 	var connected = 0, closed = 0;
 
 	var zkc1 = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: zks['1'].clientPort
 	});
 	zkc1.connect();
 	var zkc2 = new mod_zkc.Client({
+		log: log,
 		host: 'localhost',
 		port: zks['2'].clientPort
 	});
