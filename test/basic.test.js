@@ -70,7 +70,7 @@ mod_tape.test('find the test object', function (t) {
 
 		var req = zkc.list('/');
 		req.once('reply', function (pkt) {
-			t.strictEqual(pkt.opcode, 'GET_CHILDREN');
+			t.strictEqual(pkt.opcode, 'GET_CHILDREN2');
 			t.deepEqual(pkt.children.sort(), ['foo', 'zookeeper']);
 
 			var req2 = zkc.get('/foo');
@@ -313,6 +313,58 @@ mod_tape.test('children watcher', function (t) {
 				t.error(err2);
 			});
 		});
+	});
+});
+
+mod_tape.test('children watcher no node', function (t) {
+	var zkc = new mod_zkc.Client({
+		log: log,
+		host: 'localhost',
+		port: 2181
+	});
+	zkc.connect();
+
+	zkc.on('stateChanged', function (st) {
+		if (st === 'closed')
+			t.end();
+		if (st !== 'connected')
+			return;
+
+		var noKids, allKids;
+		var w = zkc.watcher('/parent');
+		w.on('childrenChanged', function (kids, stat) {
+			if (kids.length === 0) {
+				noKids = stat.cversion;
+			}
+			if (kids.indexOf('foobar') !== -1 &&
+			    kids.indexOf('foo') !== -1) {
+				allKids = stat.cversion;
+			}
+
+			if (noKids !== undefined &&
+			    allKids !== undefined) {
+				t.ok(allKids > noKids);
+				zkc.close();
+			}
+		});
+		setTimeout(function () {
+			zkc.create('/parent', new Buffer(0), {},
+			    function (err) {
+				t.error(err);
+				setTimeout(createKids, 2000);
+			});
+		}, 2000);
+
+		function createKids() {
+			zkc.create('/parent/foo', new Buffer('hi'), {},
+			    function (err2) {
+				t.error(err2);
+			});
+			zkc.create('/parent/foobar', new Buffer('hi'), {},
+			    function (err2) {
+				t.error(err2);
+			});
+		}
 	});
 });
 
