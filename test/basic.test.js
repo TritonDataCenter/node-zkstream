@@ -291,6 +291,39 @@ mod_tape.test('create a new node', function (t) {
 	});
 });
 
+mod_tape.test('create a large node', function (t) {
+	var zkc = new mod_zkc.Client({
+		log: log,
+		host: 'localhost',
+		port: 2181
+	});
+	zkc.connect();
+
+	zkc.on('stateChanged', function (st) {
+		if (st === 'closed')
+			t.end();
+		if (st !== 'connected')
+			return;
+
+		var d = new Buffer(9000);
+		d.fill(5);
+		zkc.create('/bignode', d, {}, function (err, path) {
+			t.error(err);
+			t.strictEqual(path, '/bignode');
+			zkc.get('/bignode', function (err2, output) {
+				t.error(err2);
+				t.strictEqual(output.length, 9000);
+				t.strictEqual(output[5], 5);
+
+				zkc.delete('/bignode', -1, function (err3) {
+					t.error(err3);
+					zkc.close();
+				});
+			});
+		});
+	});
+});
+
 mod_tape.test('data watcher', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
