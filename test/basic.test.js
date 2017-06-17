@@ -18,6 +18,81 @@ var log = mod_bunyan.createLogger({
 });
 
 var zk;
+var connCount = 0;
+
+mod_tape.test('connect failure: refused', function (t) {
+	var errs = 0;
+
+	var zkc = new mod_zkc.Client({
+		log: log,
+		host: 'localhost',
+		port: 2181
+	});
+	zkc.connect();
+
+	zkc.on('stateChanged', function (st) {
+		if (st === 'closed') {
+			t.end();
+		}
+	});
+
+	zkc.on('error', function (err) {
+		t.ok(err);
+		t.strictEqual(err.code, 'ECONNREFUSED');
+		++errs;
+	});
+
+	setTimeout(function () {
+		zkc.close();
+		t.ok(errs < 5);
+	}, 5000);
+});
+
+mod_tape.test('start awful zk server', function (t) {
+	zk = mod_net.createServer();
+	zk.on('connection', function (sock) {
+		++connCount;
+		sock.destroy();
+	});
+	zk.listen(2181, function () {
+		t.end();
+	});
+});
+
+mod_tape.test('connect failure: immediate close', function (t) {
+	var errs = 0;
+
+	var zkc = new mod_zkc.Client({
+		log: log,
+		host: 'localhost',
+		port: 2181
+	});
+	zkc.connect();
+
+	zkc.on('stateChanged', function (st) {
+		if (st === 'closed') {
+			t.end();
+		}
+	});
+
+	zkc.on('error', function (err) {
+		t.ok(err);
+		t.strictEqual(err.code, 'CONNECTION_LOSS');
+		++errs;
+	});
+
+	setTimeout(function () {
+		zkc.close();
+		t.ok(errs < 5);
+		t.strictEqual(errs, connCount);
+	}, 5000);
+});
+
+mod_tape.test('stop awful zk server', function (t) {
+	zk.close();
+	zk = undefined;
+	t.end();
+});
 
 mod_tape.test('start zk server', function (t) {
 	zk = new mod_zk.ZKServer();
@@ -44,6 +119,57 @@ mod_tape.test('simple connect and ping', function (t) {
 		} else if (st === 'closed') {
 			t.end();
 		}
+	});
+});
+
+mod_tape.test('simple connect and ping, with death', function (t) {
+	var stopped = false;
+	var errs = 0;
+	var t1, t2;
+
+	var zkc = new mod_zkc.Client({
+		log: log,
+		host: 'localhost',
+		port: 2181,
+		timeout: 5000
+	});
+	zkc.connect();
+
+	zkc.on('stateChanged', function (st) {
+		if (st === 'connected') {
+			zkc.ping(function (err) {
+				t1 = new Date();
+				t.error(err);
+				zk.stop();
+			});
+		} else if (st === 'closed') {
+			t2 = new Date();
+			var delta = t2.getTime() - t1.getTime();
+			t.ok(delta >= 5000);
+			t.ok(errs < 10);
+			t.end();
+		}
+	});
+
+	zkc.on('error', function (err) {
+		t.ok(err);
+		t.ok(stopped);
+		t.strictEqual(err.code, 'ECONNREFUSED');
+		++errs;
+	});
+
+	zk.on('stateChanged', function (st) {
+		if (st === 'stopped') {
+			stopped = true;
+		}
+	});
+});
+
+mod_tape.test('start zk server', function (t) {
+	zk = new mod_zk.ZKServer();
+	zk.on('stateChanged', function (st) {
+		if (st === 'running')
+			t.end();
 	});
 });
 
@@ -386,6 +512,11 @@ mod_tape.test('session resumption with watcher', function (t) {
 	});
 	zkc2.connect();
 
+	zkc1.on('error', function (err) {
+		t.ok(err);
+		t.ok(err.message === 'I killed it');
+	});
+
 	zkc1.on('stateChanged', function (st) {
 		if (st === 'closed' && ++closed >= 2)
 			t.end();
@@ -439,6 +570,7 @@ mod_tape.test('session resumption with watcher', function (t) {
 			t.error(err);
 
 			var sock = zkc1.zs_socket;
+			t.ok(sock.listeners('error').length > 0);
 			sock.emit('error', new Error('I killed it'));
 			sock.destroy();
 
