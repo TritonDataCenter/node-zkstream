@@ -68,40 +68,38 @@ mod_tape.test('start zk servers', function (t) {
 mod_tape.test('simple connect and ping #1', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: zks['1'].clientPort
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'connected') {
-			zkc.ping(function (err) {
-				t.error(err);
-				zkc.close();
-			});
-		} else if (st === 'closed') {
-			t.end();
-		}
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	zkc.on('connect', function () {
+		zkc.ping(function (err) {
+			t.error(err);
+			zkc.close();
+		});
 	});
 });
 
 mod_tape.test('simple connect and ping #3', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: zks['3'].clientPort
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'connected') {
-			zkc.ping(function (err) {
-				t.error(err);
-				zkc.close();
-			});
-		} else if (st === 'closed') {
-			t.end();
-		}
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	zkc.on('connect', function () {
+		zkc.ping(function (err) {
+			t.error(err);
+			zkc.close();
+		});
 	});
 });
 
@@ -110,34 +108,32 @@ mod_tape.test('write visibility', function (t) {
 
 	var zkc1 = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: zks['1'].clientPort
 	});
-	zkc1.connect();
 	var zkc2 = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: zks['2'].clientPort
 	});
-	zkc2.connect();
 
-	zkc1.on('stateChanged', function (st) {
-		if (st === 'closed' && ++closed >= 2)
+	zkc1.on('close', function () {
+		if (++closed >= 2)
 			t.end();
-		if (st !== 'connected')
-			return;
+	});
 
+	zkc2.on('close', function () {
+		if (++closed >= 2)
+			t.end();
+	});
+
+	zkc1.on('connect', function () {
 		if (++connected == 2) {
 			create();
 		}
 	});
 
-	zkc2.on('stateChanged', function (st) {
-		if (st === 'closed' && ++closed >= 2)
-			t.end();
-		if (st !== 'connected')
-			return;
-
+	zkc2.on('connect', function () {
 		if (++connected == 2) {
 			create();
 		}
@@ -169,34 +165,32 @@ mod_tape.test('cross-server data watch', function (t) {
 
 	var zkc1 = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: zks['1'].clientPort
 	});
-	zkc1.connect();
 	var zkc2 = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: zks['2'].clientPort
 	});
-	zkc2.connect();
 
-	zkc1.on('stateChanged', function (st) {
-		if (st === 'closed' && ++closed >= 2)
+	zkc1.on('close', function () {
+		if (++closed >= 2)
 			t.end();
-		if (st !== 'connected')
-			return;
+	});
 
+	zkc2.on('close', function () {
+		if (++closed >= 2)
+			t.end();
+	});
+
+	zkc1.on('connect', function () {
 		if (++connected == 2) {
 			setup();
 		}
 	});
 
-	zkc2.on('stateChanged', function (st) {
-		if (st === 'closed' && ++closed >= 2)
-			t.end();
-		if (st !== 'connected')
-			return;
-
+	zkc2.on('connect', function () {
 		if (++connected == 2) {
 			setup();
 		}

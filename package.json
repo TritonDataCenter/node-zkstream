@@ -6,11 +6,12 @@
   "dependencies": {
     "assert-plus": "^1.0.0",
     "bunyan": "^1.8.10",
+    "cueball": "^2.2.7",
     "jsbn": "^0.1.0",
     "mooremachine": "^2.0.0",
     "node-uuid": "^1.4.7",
-    "vasync": "^1.6.3",
-    "verror": "^1.6.1"
+    "vasync": "^1.6.4",
+    "verror": "^1.10.0"
   },
   "devDependencies": {
     "json": "^9.0.3",
