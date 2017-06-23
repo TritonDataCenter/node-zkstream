@@ -21,31 +21,23 @@ var zk;
 var connCount = 0;
 
 mod_tape.test('connect failure: refused', function (t) {
-	var errs = 0;
-
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'closed') {
-			t.end();
-		}
+	zkc.on('connect', function (st) {
+		t.fail();
 	});
 
-	zkc.on('error', function (err) {
-		t.ok(err);
-		t.strictEqual(err.code, 'ECONNREFUSED');
-		++errs;
-	});
-
-	setTimeout(function () {
+	zkc.on('failed', function () {
 		zkc.close();
-		t.ok(errs < 5);
-	}, 5000);
+	});
+
+	zkc.on('close', function () {
+		t.end();
+	});
 });
 
 mod_tape.test('start awful zk server', function (t) {
@@ -60,32 +52,23 @@ mod_tape.test('start awful zk server', function (t) {
 });
 
 mod_tape.test('connect failure: immediate close', function (t) {
-	var errs = 0;
-
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'closed') {
-			t.end();
-		}
+	zkc.on('close', function () {
+		t.end();
 	});
 
-	zkc.on('error', function (err) {
-		t.ok(err);
-		t.strictEqual(err.code, 'CONNECTION_LOSS');
-		++errs;
+	zkc.on('connect', function () {
+		t.fail();
 	});
 
-	setTimeout(function () {
+	zkc.on('failed', function () {
 		zkc.close();
-		t.ok(errs < 5);
-		t.strictEqual(errs, connCount);
-	}, 5000);
+	});
 });
 
 mod_tape.test('stop awful zk server', function (t) {
@@ -103,65 +86,58 @@ mod_tape.test('start zk server', function (t) {
 });
 
 mod_tape.test('simple connect and ping', function (t) {
+	var pinged = false;
+
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'connected') {
-			zkc.ping(function (err) {
-				t.error(err);
-				zkc.close();
-			});
-		} else if (st === 'closed') {
-			t.end();
-		}
+	zkc.on('close', function () {
+		t.ok(pinged);
+		t.end();
+	});
+
+	zkc.on('connect', function () {
+		zkc.ping(function (err) {
+			t.error(err);
+			pinged = true;
+			zkc.close();
+		});
 	});
 });
 
 mod_tape.test('simple connect and ping, with death', function (t) {
 	var stopped = false;
-	var errs = 0;
 	var t1, t2;
 
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181,
-		timeout: 5000
-	});
-	zkc.connect();
-
-	zkc.on('stateChanged', function (st) {
-		if (st === 'connected') {
-			zkc.ping(function (err) {
-				t1 = new Date();
-				t.error(err);
-				zk.stop();
-			});
-		} else if (st === 'closed') {
-			t2 = new Date();
-			var delta = t2.getTime() - t1.getTime();
-			t.ok(delta >= 5000);
-			t.ok(errs < 10);
-			t.end();
-		}
+		sessionTimeout: 5000
 	});
 
-	zkc.on('error', function (err) {
-		t.ok(err);
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	zkc.on('expire', function () {
 		t.ok(stopped);
-		t.strictEqual(err.code, 'ECONNREFUSED');
-		++errs;
+		t2 = new Date();
+		var delta = t2.getTime() - t1.getTime();
+		t.ok(delta >= 5000);
+		zkc.close();
 	});
 
-	zk.on('stateChanged', function (st) {
-		if (st === 'stopped') {
+	zkc.on('connect', function () {
+		zkc.ping(function (err) {
+			t1 = new Date();
+			t.error(err);
 			stopped = true;
-		}
+			zk.stop();
+		});
 	});
 });
 
@@ -183,17 +159,15 @@ mod_tape.test('set up test object', function (t) {
 mod_tape.test('find the test object', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'closed')
-			t.end();
-		if (st !== 'connected')
-			return;
+	zkc.on('close', function () {
+		t.end();
+	});
 
+	zkc.on('connect', function () {
 		var req = zkc.list('/');
 		req.once('reply', function (pkt) {
 			t.strictEqual(pkt.opcode, 'GET_CHILDREN2');
@@ -220,16 +194,15 @@ mod_tape.test('find the test object', function (t) {
 mod_tape.test('delete the test object', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'closed')
-			t.end();
-		if (st !== 'connected')
-			return;
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	zkc.on('connect', function () {
 		zkc.delete('/foo', 0, function (err) {
 			t.error(err);
 			zkc.close();
@@ -240,17 +213,15 @@ mod_tape.test('delete the test object', function (t) {
 mod_tape.test('ask for a non-existent node', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'closed')
-			t.end();
-		if (st !== 'connected')
-			return;
+	zkc.on('close', function () {
+		t.end();
+	});
 
+	zkc.on('connect', function () {
 		var req = zkc.stat('/foo');
 		req.once('reply', function (pkt) {
 			t.fail('Expected an error');
@@ -267,17 +238,15 @@ mod_tape.test('ask for a non-existent node', function (t) {
 mod_tape.test('create a new node', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'closed')
-			t.end();
-		if (st !== 'connected')
-			return;
+	zkc.on('close', function () {
+		t.end();
+	});
 
+	zkc.on('connect', function () {
 		var d = new Buffer('hi there', 'ascii');
 		zkc.create('/foo', d, {}, function (err, path) {
 			t.error(err);
@@ -294,17 +263,15 @@ mod_tape.test('create a new node', function (t) {
 mod_tape.test('create a large node', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'closed')
-			t.end();
-		if (st !== 'connected')
-			return;
+	zkc.on('close', function () {
+		t.end();
+	});
 
+	zkc.on('connect', function () {
 		var d = new Buffer(9000);
 		d.fill(5);
 		zkc.create('/bignode', d, {}, function (err, path) {
@@ -327,31 +294,31 @@ mod_tape.test('create a large node', function (t) {
 mod_tape.test('data watcher', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc.connect();
+
+	zkc.on('close', function () {
+		t.end();
+	});
 
 	var data = new Buffer('hi there', 'ascii');
 	var count = 0;
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'closed')
-			t.end();
-		if (st !== 'connected')
-			return;
+	zkc.on('connect', function () {
 		zkc.watcher('/foo').on('dataChanged', function (newData) {
 			t.ok(Buffer.isBuffer(newData));
 			t.strictEqual(newData.toString('base64'),
 			    data.toString('base64'));
 			if (++count === 1) {
 				data = new Buffer('hi', 'ascii');
+				console.log('doing set');
+				zk.cli('set', '/foo', 'hi', function (err) {
+					t.error(err);
+					t.strictEqual(count, 2);
+					zkc.close();
+				});
 			}
-		});
-		zk.cli('set', '/foo', 'hi', function (err) {
-			t.error(err);
-			t.strictEqual(count, 2);
-			zkc.close();
 		});
 	});
 });
@@ -359,17 +326,15 @@ mod_tape.test('data watcher', function (t) {
 mod_tape.test('delete it while watching', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'closed')
-			t.end();
-		if (st !== 'connected')
-			return;
+	zkc.on('close', function () {
+		t.end();
+	});
 
+	zkc.on('connect', function () {
 		zkc.watcher('/foo').on('deleted', function () {
 			zkc.close();
 		});
@@ -392,17 +357,15 @@ mod_tape.test('set up test object', function (t) {
 mod_tape.test('delete it while watching data', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'closed')
-			t.end();
-		if (st !== 'connected')
-			return;
+	zkc.on('close', function () {
+		t.end();
+	});
 
+	zkc.on('connect', function () {
 		var dwFired = 0;
 		var w = zkc.watcher('/foobar');
 		w.on('dataChanged', function (data, stat) {
@@ -431,17 +394,15 @@ mod_tape.test('set up test object', function (t) {
 mod_tape.test('children watcher', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'closed')
-			t.end();
-		if (st !== 'connected')
-			return;
+	zkc.on('close', function () {
+		t.end();
+	});
 
+	zkc.on('connect', function () {
 		var sawFoobar, sawFoo, sawNone;
 		var w = zkc.watcher('/');
 		w.on('childrenChanged', function (kids, stat) {
@@ -478,17 +439,15 @@ mod_tape.test('children watcher', function (t) {
 mod_tape.test('children watcher no node', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc.connect();
 
-	zkc.on('stateChanged', function (st) {
-		if (st === 'closed')
-			t.end();
-		if (st !== 'connected')
-			return;
+	zkc.on('close', function () {
+		t.end();
+	});
 
+	zkc.on('connect', function () {
 		var noKids, allKids;
 		var w = zkc.watcher('/parent');
 		w.on('childrenChanged', function (kids, stat) {
@@ -533,40 +492,33 @@ mod_tape.test('session resumption with watcher', function (t) {
 
 	var zkc1 = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc1.connect();
 
 	var zkc2 = new mod_zkc.Client({
 		log: log,
-		host: 'localhost',
+		address: '127.0.0.1',
 		port: 2181
 	});
-	zkc2.connect();
 
-	zkc1.on('error', function (err) {
-		t.ok(err);
-		t.ok(err.message === 'I killed it');
+	zkc1.on('close', function () {
+		if (++closed >= 2)
+			t.end();
 	});
 
-	zkc1.on('stateChanged', function (st) {
-		if (st === 'closed' && ++closed >= 2)
+	zkc2.on('close', function () {
+		if (++closed >= 2)
 			t.end();
-		if (st !== 'connected')
-			return;
+	});
 
+	zkc1.on('connect', function () {
 		if (++connected == 2) {
 			create();
 		}
 	});
 
-	zkc2.on('stateChanged', function (st) {
-		if (st === 'closed' && ++closed >= 2)
-			t.end();
-		if (st !== 'connected')
-			return;
-
+	zkc2.on('connect', function () {
 		if (++connected == 2) {
 			create();
 		}
@@ -602,7 +554,7 @@ mod_tape.test('session resumption with watcher', function (t) {
 		zkc2.stat('/foo', function (err, stat) {
 			t.error(err);
 
-			var sock = zkc1.zs_socket;
+			var sock = zkc1.getSession().getConnection().zcf_socket;
 			t.ok(sock.listeners('error').length > 0);
 			sock.emit('error', new Error('I killed it'));
 			sock.destroy();
