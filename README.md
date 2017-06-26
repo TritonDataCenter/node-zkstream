@@ -8,7 +8,7 @@ API
 
 ## Client
 
-### `mod_zkstream.connect(options[, cb])`
+### `new mod_zkstream.Client(options)`
 
 Opens a new ZooKeeper connection and returns the Client instance.
 
@@ -23,6 +23,30 @@ Closes the connection.
 
 Parameters:
  - `cb`: an optional Function, called once the connection has ended
+
+### Events
+
+#### `connect`
+
+Emitted when the client successfully connects to a ZooKeeper server, either
+for the first time, or on subsequent reconnects after an error and failover
+on to a different server.
+
+#### `failed`
+
+Emitted when the client has exhausted its retry policy and cannot connect
+to any ZooKeeper servers.
+
+#### `expire`
+
+Emitted when the client's ZK session has expired. All ephemeral nodes created
+by this client will have now disappeared from the view of other clients, and
+any watchers will be invalid (will no longer emit events).
+
+#### `close`
+
+Emitted when the client has shut down at the request of a call to
+`Client#close`.
 
 ### `Client#ping([cb])`
 
