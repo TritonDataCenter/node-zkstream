@@ -168,25 +168,15 @@ mod_tape.test('find the test object', function (t) {
 	});
 
 	zkc.on('connect', function () {
-		var req = zkc.list('/');
-		req.once('reply', function (pkt) {
-			t.strictEqual(pkt.opcode, 'GET_CHILDREN2');
-			t.deepEqual(pkt.children.sort(), ['foo', 'zookeeper']);
-
-			var req2 = zkc.get('/foo');
-			req2.once('reply', function (pkt2) {
-				t.strictEqual(
-				    pkt2.data.toString('ascii'), 'hi');
-				zkc.close();
-			});
-			req2.once('error', function (err) {
-				t.error(err);
-				zkc.close();
-			});
-		});
-		req.once('error', function (err) {
+		zkc.list('/', function (err, kids, stat) {
 			t.error(err);
-			zkc.close();
+			t.deepEqual(kids.sort(), ['foo', 'zookeeper']);
+
+			zkc.get('/foo', function (err2, data) {
+				t.error(err2);
+				t.strictEqual(data.toString('ascii'), 'hi');
+				zkc.close();
+			});
 		});
 	});
 });
@@ -222,12 +212,7 @@ mod_tape.test('ask for a non-existent node', function (t) {
 	});
 
 	zkc.on('connect', function () {
-		var req = zkc.stat('/foo');
-		req.once('reply', function (pkt) {
-			t.fail('Expected an error');
-			zkc.close();
-		});
-		req.once('error', function (err) {
+		zkc.stat('/foo', function (err, stat) {
 			t.ok(err);
 			t.strictEqual(err.code, 'NO_NODE');
 			zkc.close();
@@ -502,7 +487,15 @@ mod_tape.test('session resumption with watcher', function (t) {
 		port: 2181
 	});
 
+	var ev1 = [];
+	zkc1.on('connect', ev1.push.bind(ev1, 'connect'));
+	zkc1.on('session', ev1.push.bind(ev1, 'session'));
+	zkc1.on('expire', ev1.push.bind(ev1, 'expire'));
+	zkc1.on('disconnect', ev1.push.bind(ev1, 'disconnect'));
+
 	zkc1.on('close', function () {
+		t.deepEqual(ev1,
+		    ['session', 'connect', 'disconnect', 'connect']);
 		if (++closed >= 2)
 			t.end();
 	});

@@ -26,6 +26,11 @@ Parameters:
 
 ### Events
 
+#### `session`
+
+Emitted when the client establishes a new session with the ZK server. Will
+generally be followed immediately by a `connect` event.
+
 #### `connect`
 
 Emitted when the client successfully connects to a ZooKeeper server, either
@@ -65,7 +70,7 @@ Parameters
  - `cb`: an optional Function `(err, children)` with parameters:
    - `children`: an Array of Strings
 
-Returns a request emitter (see below).
+
 
 ### `Client#stat(path[, cb])`
 
@@ -84,7 +89,7 @@ Parameters
      - `ephemeralOwner`: a Buffer, ID of connection that owns this node
                          if it is ephemeral
 
-Returns a request emitter (see below).
+
 
 ### `Client#get(path[, cb])`
 
@@ -96,7 +101,7 @@ Parameters
    - `data`: a Buffer
    - `stat`: an Object, same format as `stat` in `Client#stat`
 
-Returns a request emitter (see below).
+
 
 ### `Client#delete(path, version[, cb])`
 
@@ -107,7 +112,7 @@ Parameters
  - `version`: a Number, latest version to check against
  - `cb`: an optional Function `(err)`
 
-Returns a request emitter (see below).
+
 
 ### `Client#create(path, data[, options[, cb]])`
 
@@ -122,7 +127,7 @@ Parameters
    - `acl`: an optional Array of ACL objects
  - `cb`: an optional Function `(err)`
 
-Returns a request emitter (see below).
+
 
 ### `Client#set(path, data, version[, cb])`
 
@@ -135,7 +140,7 @@ Parameters
  - `version`: a Number, version number as returned from `Client#stat`
  - `cb`: an optional Function `(err)`
 
-Returns a request emitter (see below).
+
 
 ### `Client#sync(path[, cb])`
 
@@ -146,7 +151,7 @@ Parameters
  - `path`: a String, path to the node
  - `cb`: an optional Function `(err)`
 
-Returns a request emitter (see below).
+
 
 ### `Client#watcher(path)`
 
@@ -193,15 +198,6 @@ exists.
 Parameters
  - `cb`: a Function `(children)` with arguments:
    - `children`: an Array of Strings
-
-## Request emitters
-
-An interface returned by most functions on Client. A subclass of EventEmitter,
-emits the following events:
-
- - `'reply'` `(pkt)`: emitted when a reply to this request is received.
-                      Argument is the decoded ZooKeeper protocol packet.
- - `'error'` `(err)`: emitted when the request fails
 
 ## ACL objects
 
