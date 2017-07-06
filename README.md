@@ -70,7 +70,12 @@ Parameters
  - `cb`: an optional Function `(err, children)` with parameters:
    - `children`: an Array of Strings
 
+### `Client#isConnected()`
 
+Determines whether the client has a working connection to ZooKeeper at the
+present time.
+
+Returns boolean.
 
 ### `Client#stat(path[, cb])`
 
@@ -101,6 +106,20 @@ Parameters
    - `data`: a Buffer
    - `stat`: an Object, same format as `stat` in `Client#stat`
 
+
+### `Client#getACL(path[, cb])`
+
+Gets the data stored in a given node.
+
+Parameters
+ - `path`: a String, path to the node
+ - `cb`: an optional Function `(err, acl)` with parameters:
+   - `acl`: an Array of Objects, ACL entries, with properties:
+     - `id`: an Object, the principal the ACL entry applies to
+       - `scheme`: a String, the principal URI scheme
+       - `id`: a String, the remainder of the URI
+     - `perms`: an Array of Strings, the permissions given to
+       this principal
 
 
 ### `Client#delete(path, version[, cb])`

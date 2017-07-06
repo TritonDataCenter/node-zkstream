@@ -108,6 +108,34 @@ mod_tape.test('simple connect and ping', function (t) {
 	});
 });
 
+mod_tape.test('double ping', function (t) {
+	var pinged = 0;
+
+	var zkc = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	zkc.on('close', function () {
+		t.strictEqual(pinged, 2);
+		t.end();
+	});
+
+	zkc.on('connect', function () {
+		zkc.ping(function (err) {
+			t.error(err);
+			if (++pinged == 2)
+				zkc.close();
+		});
+		zkc.ping(function (err) {
+			t.error(err);
+			if (++pinged == 2)
+				zkc.close();
+		});
+	});
+});
+
 mod_tape.test('simple connect and ping, with death', function (t) {
 	var stopped = false;
 	var t1, t2;
@@ -177,6 +205,31 @@ mod_tape.test('find the test object', function (t) {
 				t.strictEqual(data.toString('ascii'), 'hi');
 				zkc.close();
 			});
+		});
+	});
+});
+
+mod_tape.test('get acl for the test object', function (t) {
+	var zkc = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	zkc.on('connect', function () {
+		zkc.getACL('/foo', function (err, acl) {
+			t.error(err);
+			t.ok(Array.isArray(acl));
+			t.equal(acl.length, 1);
+			t.strictEqual(acl[0].id.scheme, 'world');
+			t.strictEqual(acl[0].id.id, 'anyone');
+			t.deepEqual(acl[0].perms.sort(),
+			    ['ADMIN', 'CREATE', 'DELETE', 'READ', 'WRITE']);
+			zkc.close();
 		});
 	});
 });
@@ -554,6 +607,95 @@ mod_tape.test('session resumption with watcher', function (t) {
 
 			var data = new Buffer('hello again');
 			zkc2.set('/foo', data, stat.version, function (err2) {
+				t.error(err2);
+				zkc2.close();
+			});
+		});
+	}
+});
+
+mod_tape.test('session resumption with watcher (ping timeout)', function (t) {
+	var connected = 0;
+	var closed = 0;
+
+	var zkc1 = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	var zkc2 = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	var ev1 = [];
+	zkc1.on('connect', ev1.push.bind(ev1, 'connect'));
+	zkc1.on('session', ev1.push.bind(ev1, 'session'));
+	zkc1.on('expire', ev1.push.bind(ev1, 'expire'));
+	zkc1.on('disconnect', ev1.push.bind(ev1, 'disconnect'));
+
+	zkc1.on('close', function () {
+		t.deepEqual(ev1,
+		    ['session', 'connect', 'disconnect', 'connect']);
+		if (++closed >= 2)
+			t.end();
+	});
+
+	zkc2.on('close', function () {
+		if (++closed >= 2)
+			t.end();
+	});
+
+	zkc1.on('connect', function () {
+		if (++connected == 2) {
+			create();
+		}
+	});
+
+	zkc2.on('connect', function () {
+		if (++connected == 2) {
+			create();
+		}
+	});
+
+	function create() {
+		var ret = 0;
+		var d = new Buffer('hi there', 'ascii');
+		var w = zkc2.watcher('/foo3');
+		function onCreated() {
+			if (++ret == 2) {
+				w.removeListener('created', onCreated);
+				ready();
+			}
+		}
+		w.on('created', onCreated);
+		zkc1.watcher('/foo3').on('dataChanged', function (data) {
+			if (data.toString('utf-8') === 'hello again') {
+				zkc1.close();
+			}
+		});
+		zkc1.create('/foo3', d, {}, function (err, path) {
+			t.error(err);
+			t.strictEqual(path, '/foo3');
+			if (++ret == 2) {
+				w.removeListener('created', onCreated);
+				ready();
+			}
+		});
+	}
+
+	function ready() {
+		zkc2.stat('/foo3', function (err, stat) {
+			t.error(err);
+
+			var sock = zkc1.getSession().getConnection().zcf_socket;
+			t.ok(sock.listeners('error').length > 0);
+			sock.destroy();
+
+			var data = new Buffer('hello again');
+			zkc2.set('/foo3', data, stat.version, function (err2) {
 				t.error(err2);
 				zkc2.close();
 			});
