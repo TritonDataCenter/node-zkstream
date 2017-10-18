@@ -141,10 +141,41 @@ Parameters
  - `path`: a String, path to the node to be created
  - `data`: a Buffer
  - `options`: an optional Object, with keys:
-   - `flags`: an optional Array of Strings, can be `'ephemeral'` or
-              `'sequential'`
+   - `flags`: an optional Array of Strings, can be `'EPHEMERAL'` or
+              `'SEQUENTIAL'`
    - `acl`: an optional Array of ACL objects
- - `cb`: an optional Function `(err)`
+ - `cb`: a Function `(err, createdPath)`, the `createdPath` argument refers
+   to the created node. It is important if the `SEQUENTIAL` flag was provided
+   because it communicates to the client what name, and therefore sequence
+   number, was selected for the final node.
+
+
+
+### `Client#createWithEmptyParents(path, data[, options[, cb]])`
+
+Creates a new node at the given path, creating any intermediate path
+components and populating them with the data string `null`. If any
+of the intermediate znodes already exist, neither their ACLs nor data
+will be modified. Any intermediate component that doesn't exist will
+be created with the ACLs given in the `options` object, if they
+are provided. Any flags provided will be applied only to the final
+node in the path. All intermediate nodes created by this function
+are regular persistent zookeeper nodes.
+
+Parameters:
+ - `path`: a String, path to the node to be created
+ - `data`: a Buffer
+ - `options`: an optional Object, with keys:
+   - `flags`: an optional Array of String, can be `'EPHEMERAL'` or
+              `'SEQUENTIAL'`. These flags will only be applied to
+              the node represented by the final path component, and
+              not to any of the intermediate (parent) nodes. These
+              intermediate nodes will be created with no flags.
+   - `acl`: an optional Array of ACL objects
+ - `cb`: a Function `(err, createdPath)`, the `createdPath` argument
+   is passed through from the call to `Client#create` that creates
+   the final node in the `path` specified as an argument to
+   this function.
 
 
 
