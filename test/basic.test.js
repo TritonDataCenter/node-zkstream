@@ -11,6 +11,8 @@ const mod_zk = require('./zkserver');
 const mod_zkc = require('../lib/index');
 const mod_net = require('net');
 const mod_bunyan = require('bunyan');
+const mod_util = require('util');
+const mod_vasync = require('vasync');
 
 var log = mod_bunyan.createLogger({
 	name: 'zkstream-test',
@@ -294,6 +296,273 @@ mod_tape.test('create a new node', function (t) {
 				t.strictEqual(output, 'hi there\n');
 				zkc.close();
 			});
+		});
+	});
+});
+
+mod_tape.test('createWithEmptyParents - basic', function (t) {
+	var zkc = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	zkc.on('connect', function () {
+		mod_vasync.pipeline({ funcs: [
+			function (_, callback) {
+				var d = new Buffer('hi there', 'ascii');
+				zkc.createWithEmptyParents('/hi/there', d, {},
+				    function (err, path) {
+					t.strictEqual(path, '/hi/there');
+					callback(err);
+				});
+			},
+			function (_, callback) {
+				zk.cli('get', '/hi', function (err, output) {
+					t.strictEqual(output, 'null\n');
+					callback(err);
+				});
+			},
+			function (_, callback) {
+				zk.cli('get', '/hi/there',
+				    function (err, output) {
+					t.strictEqual(output, 'hi there\n');
+					callback(err);
+				});
+			}
+		]}, function (err, results) {
+			t.error(err);
+			zkc.close();
+		});
+	});
+});
+
+mod_tape.test('createWithEmptyParents - no parent overwrite', function (t) {
+	var zkc = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	zkc.on('connect', function () {
+		mod_vasync.pipeline({ funcs: [
+			function (_, callback) {
+				var d = new Buffer('exist', 'ascii');
+				zkc.create('/exist', d, {},
+				    function (err) {
+					callback(err);
+				});
+			},
+			function (_, callback) {
+				var d = new Buffer('new', 'ascii');
+				zkc.createWithEmptyParents('/exist/new', d, {},
+				    function (err, path) {
+					t.strictEqual(path, '/exist/new');
+					callback(err);
+				});
+			},
+			function (_, callback) {
+				zkc.get('/exist', function (err, data) {
+					t.strictEqual(data.toString(),
+					    'exist');
+					callback(err);
+				});
+			},
+			function (_, callback) {
+				zkc.get('/exist/new', function (err, data) {
+					t.strictEqual(data.toString(), 'new');
+					callback(err);
+				});
+			}
+		]}, function (err, results) {
+			t.error(err);
+			zkc.close();
+		});
+	});
+});
+
+mod_tape.test('createWithEmptyParents - create existing node', function (t) {
+	var zkc = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	zkc.on('connect', function () {
+		mod_vasync.pipeline({ funcs: [
+			function (_, callback) {
+				var d = new Buffer('new', 'ascii');
+				zkc.createWithEmptyParents('/new/path', d, {},
+				    function (err, path) {
+					t.strictEqual(path, '/new/path');
+					callback(err);
+				});
+			},
+			function (_, callback) {
+				var d = new Buffer('overwrite', 'ascii');
+				zkc.createWithEmptyParents('/new/path', d, {},
+				    function (err) {
+					t.ok(err, 'node already exists');
+					t.strictEqual(err.code, 'NODE_EXISTS');
+					callback();
+				});
+			},
+			function (_, callback) {
+				zkc.get('/new/path', function (err, data) {
+					t.ok(data, 'expects node data');
+					t.strictEqual(data.toString(), 'new');
+					callback();
+				});
+			}
+		]}, function (err, results) {
+			t.error(err);
+			zkc.close();
+		});
+	});
+});
+
+mod_tape.test('createWithEmptyParents - no ephemeral parents', function (t) {
+	var zkc = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	// The Client#stat API method returns a property called `ephemeralOwner`
+	// in the stat structure passed to its callback. This property
+	// represents a connection ID that corresponds to the session keeping
+	// the node alive. This is the value it returns when the node is not
+	// ephemeral.
+	var emptyOwnerId = Buffer.from([0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	    0x00, 0x00]);
+
+	function createEphemNode(_, callback) {
+		var d = new Buffer('ephemeral', 'ascii');
+		zkc.createWithEmptyParents('/no/ephem/parents/child', d,
+		    { flags: ['EPHEMERAL'] }, function (err, path) {
+			t.strictEqual(path, '/no/ephem/parents/child');
+			t.error(err);
+			callback(err);
+		});
+	}
+
+	// This function verifies two things. First it checks that the parents
+	// were not created as sequential nodes. It does this by stating all the
+	// prefixes of the full path to check that they are retrievable by the
+	// expected name. Second, it checks for the presence of the
+	// ephemeralOwner property in the stat structure for all the prefixes.
+	// This field should only be present for ephemeral nodes.
+	function checkParentsNotEphem(_, callback) {
+		var dirname = '/no/ephem/parents';
+		var parents = dirname.split('/').splice(1);
+		var currentPath = '';
+		parents.forEach(function (node) {
+			currentPath = currentPath + '/' + node;
+			zkc.stat(currentPath, function (err, stat) {
+				t.error(err);
+				if (stat) {
+					t.ok(stat.ephemeralOwner.equals(
+					    emptyOwnerId), 'parent node ' +
+					    'is not ephemeral');
+				}
+			});
+		});
+		callback();
+	}
+
+	function checkFinalEphem(_, callback) {
+		zkc.stat('/no/ephem/parents/child',
+		    function (err, stat) {
+			t.error(err);
+			t.ok(stat, 'missing stat structure');
+			t.ok(!stat.ephemeralOwner.equals(emptyOwnerId),
+			    'missing ephemeralOwner');
+			callback();
+		});
+	}
+
+	zkc.on('connect', function () {
+		mod_vasync.pipeline({ funcs: [
+			createEphemNode,
+			checkParentsNotEphem,
+			checkFinalEphem
+		]}, function (err, results) {
+			t.error(err);
+			zkc.close();
+		});
+	});
+});
+
+mod_tape.test('createWithEmptyParents - no sequential parents', function (t) {
+	var zkc = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	var path = '/no/seq/parents/child';
+
+
+	function runPipeline(createdPath) {
+
+		function checkNoSequentialParents(_, callback) {
+		        var parentPath = '/no/seq/parents';
+			var parents = parentPath.split('/').splice(1);
+			var currentPath = '';
+			parents.forEach(function (node) {
+				currentPath = currentPath + '/' + node;
+				zkc.stat(currentPath, function (sErr, stat) {
+				    t.error(sErr);
+				    t.ok(stat, 'missing stat structure');
+				});
+			});
+			callback();
+		}
+
+		function checkSequentialChild(_, callback) {
+			zkc.stat(createdPath, function (sErr, stat) {
+				t.error(sErr);
+				t.ok(stat, 'missing stat structure');
+				callback(sErr);
+			});
+		}
+
+		mod_vasync.pipeline({ funcs: [
+			checkNoSequentialParents,
+			checkSequentialChild
+		]}, function (pErr, results) {
+			t.error(pErr);
+			zkc.close();
+		});
+	}
+
+	zkc.on('connect', function () {
+		var d = new Buffer('sequence node', 'ascii');
+		zkc.createWithEmptyParents(path, d,
+		    { flags: ['SEQUENTIAL'] },
+		    function (err, sequentialPath) {
+			t.error(err);
+			runPipeline(sequentialPath);
 		});
 	});
 });
