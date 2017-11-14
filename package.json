@@ -2,6 +2,10 @@
   "name": "zkstream",
   "version": "0.9.0",
   "description": "",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/joyent/node-zkstream.git"
+  },
   "main": "lib/index.js",
   "dependencies": {
     "assert-plus": "^1.0.0",
