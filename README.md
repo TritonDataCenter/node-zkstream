@@ -14,8 +14,9 @@ Opens a new ZooKeeper connection and returns the Client instance.
 
 Parameters:
  - `options`: an Object, with keys:
-   - `host`: a String, hostname or IP to connect to
-   - `port`: an optional Number
+   - `address`: a String, hostname or IP to connect to
+   - `port`: an optional Number (default: 2181)
+   - `sessionTimeout`: an optional Number (default: 30000 ms)
 
 ### `Client#close([cb])`
 
@@ -228,4 +229,3 @@ Objects, with keys:
    - `id`: a String
  - `perms`: an Array of Strings, can be `'read'`, `'write'`, `'create'`,
             `'delete'`, `'admin'`
-
