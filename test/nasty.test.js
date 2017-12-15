@@ -25,6 +25,67 @@ var pkt, pkt2;
 var connCount = 0;
 var connCb;
 
+/*
+ * Create a dummy TCP listener and close the listening socket after a short
+ * timeout. Allow time for this change to be noticed by the node-zkstream
+ * CueballConnectionSet. This should result in the corresponding
+ * ConnectionSlotFSM being marked dead and a monitor mode ConnectionSlotFSM
+ * being created. When the dummy TCP listener comes back online, this change
+ * should be noticed by the ZKClient StaticIpResolver which will result in the
+ * monitor mode connection and the connection marked dead to race to attach to a
+ * session. This can result in one of the ConnectionSlotFSMs seeing the session
+ * state 'attaching' or 'reattaching'. This test verifies that the client
+ * doesn't crash in this case.
+ */
+mod_tape.test('attachAndSendCR race', function (t) {
+	var WAIT_BEFORE_CLOSE = 10000;
+	var WAIT_BEFORE_RELISTEN = 13000;
+	var TEST_TIMEOUT = 25000;
+
+	var zk1 = mod_net.createServer();
+	var zk2 = mod_net.createServer();
+
+	zk1.listen(2181, function () {
+		log.trace('zk server 1 - listening');
+		setTimeout(function () {
+			log.trace('zk server 1 - closing');
+			zk1.close(function () {
+				setTimeout(function () {
+					zk1.listen(2181, function () {
+						log.trace('zk server 1 ' +
+						    '- listening');
+					});
+				}, WAIT_BEFORE_RELISTEN);
+			});
+		}, WAIT_BEFORE_CLOSE);
+	});
+	zk2.listen(2182, function () {
+		log.trace('zk server 2 - listening');
+	});
+
+	var zkc = new mod_zkc.Client({
+		log: log,
+		servers: [ {
+			address: '127.0.0.1',
+			port: 2181
+		}, {
+			address: '127.0.0.1',
+			port: 2182
+		} ]
+	});
+
+	zkc.on('failed', function () {
+		log.trace('received failed event');
+	});
+
+	setTimeout(function () {
+		zk1.close();
+		zk2.close();
+		zkc.close();
+		t.end();
+	}, TEST_TIMEOUT);
+});
+
 mod_tape.test('start awful zk server', function (t) {
 	zk = mod_net.createServer();
 	zk.on('connection', function (sock) {
