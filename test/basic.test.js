@@ -300,6 +300,44 @@ mod_tape.test('create a new node', function (t) {
 	});
 });
 
+// Helper used by the createWithEmptyParents API tests
+
+/*
+ * Used to cleanup nodes created during a test. Ignores failures
+ * occurring because the node being delete doesn't exist in case
+ * any test decides to do so manually.
+ */
+function cleanupNodes(zkc, paths, cb) {
+	mod_vasync.forEachPipeline({
+		func: function (path, callback) {
+			zkc.delete(path, -1, function (err) {
+				if (err && err.code === 'NO_NODE') {
+					callback();
+					return;
+				}
+				callback(err);
+			});
+		},
+		inputs: paths
+	}, function (err) {
+		cb(err);
+	});
+}
+
+/*
+ * Given a path /a/b/c, return the array: ['/a/b/c', '/a/b', '/a']. The purpose
+ * of this function is to create a list of nodes that can be fed into
+ * 'cleanupNodes' to delete all of the paths leading up to '/a/b/c'.
+ */
+function pathsLeadingTo(path) {
+	var subPaths = [];
+	var components = path.split('/').slice(1);
+	for (var i = 1; i <= components.length; i++) {
+		subPaths.unshift('/' + components.slice(0, i).join('/'));
+	}
+	return (subPaths);
+}
+
 mod_tape.test('createWithEmptyParents - basic', function (t) {
 	var zkc = new mod_zkc.Client({
 		log: log,
@@ -310,6 +348,8 @@ mod_tape.test('createWithEmptyParents - basic', function (t) {
 	zkc.on('close', function () {
 		t.end();
 	});
+
+	var toDelete = pathsLeadingTo('/hi/there');
 
 	zkc.on('connect', function () {
 		mod_vasync.pipeline({ funcs: [
@@ -336,7 +376,10 @@ mod_tape.test('createWithEmptyParents - basic', function (t) {
 			}
 		]}, function (err, results) {
 			t.error(err);
-			zkc.close();
+			cleanupNodes(zkc, toDelete, function (cleanupErr) {
+				t.error(cleanupErr);
+				zkc.close();
+			});
 		});
 	});
 });
@@ -351,6 +394,8 @@ mod_tape.test('createWithEmptyParents - no parent overwrite', function (t) {
 	zkc.on('close', function () {
 		t.end();
 	});
+
+	var toDelete = pathsLeadingTo('/exist/new');
 
 	zkc.on('connect', function () {
 		mod_vasync.pipeline({ funcs: [
@@ -384,7 +429,10 @@ mod_tape.test('createWithEmptyParents - no parent overwrite', function (t) {
 			}
 		]}, function (err, results) {
 			t.error(err);
-			zkc.close();
+			cleanupNodes(zkc, toDelete, function (cleanupErr) {
+				t.error(cleanupErr);
+				zkc.close();
+			});
 		});
 	});
 });
@@ -399,6 +447,8 @@ mod_tape.test('createWithEmptyParents - create existing node', function (t) {
 	zkc.on('close', function () {
 		t.end();
 	});
+
+	var toDelete = pathsLeadingTo('/new/path');
 
 	zkc.on('connect', function () {
 		mod_vasync.pipeline({ funcs: [
@@ -428,7 +478,10 @@ mod_tape.test('createWithEmptyParents - create existing node', function (t) {
 			}
 		]}, function (err, results) {
 			t.error(err);
-			zkc.close();
+			cleanupNodes(zkc, toDelete, function (cleanupErr) {
+				t.error(cleanupErr);
+				zkc.close();
+			});
 		});
 	});
 });
@@ -444,13 +497,17 @@ mod_tape.test('createWithEmptyParents - no ephemeral parents', function (t) {
 		t.end();
 	});
 
-	// The Client#stat API method returns a property called `ephemeralOwner`
-	// in the stat structure passed to its callback. This property
-	// represents a connection ID that corresponds to the session keeping
-	// the node alive. This is the value it returns when the node is not
-	// ephemeral.
-	var emptyOwnerId = Buffer.from([0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	/*
+	 * The Client#stat API method returns a property called `ephemeralOwner`
+	 * in the stat structure passed to its callback. This property
+	 * represents a connection ID that corresponds to the session keeping
+	 * the node alive. This is the value it returns when the node is not
+	 * ephemeral.
+	 */
+	var emptyOwnerId = new Buffer([0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	    0x00, 0x00]);
+
+	var toDelete = pathsLeadingTo('/no/ephem/parents/child');
 
 	function createEphemNode(_, callback) {
 		var d = new Buffer('ephemeral', 'ascii');
@@ -462,12 +519,14 @@ mod_tape.test('createWithEmptyParents - no ephemeral parents', function (t) {
 		});
 	}
 
-	// This function verifies two things. First it checks that the parents
-	// were not created as sequential nodes. It does this by stating all the
-	// prefixes of the full path to check that they are retrievable by the
-	// expected name. Second, it checks for the presence of the
-	// ephemeralOwner property in the stat structure for all the prefixes.
-	// This field should only be present for ephemeral nodes.
+	/*
+	 * This function verifies two things. First it checks that the parents
+	 * were not created as sequential nodes. It does this by stating all the
+	 * prefixes of the full path to check that they are retrievable by the
+	 * expected name. Second, it checks for the presence of the
+	 * ephemeralOwner property in the stat structure for all the prefixes.
+	 * This field should only be present for ephemeral nodes.
+	 */
 	function checkParentsNotEphem(_, callback) {
 		var dirname = '/no/ephem/parents';
 		var parents = dirname.split('/').splice(1);
@@ -504,7 +563,10 @@ mod_tape.test('createWithEmptyParents - no ephemeral parents', function (t) {
 			checkFinalEphem
 		]}, function (err, results) {
 			t.error(err);
-			zkc.close();
+			cleanupNodes(zkc, toDelete, function (cleanupErr) {
+				t.error(cleanupErr);
+				zkc.close();
+			});
 		});
 	});
 });
@@ -522,6 +584,7 @@ mod_tape.test('createWithEmptyParents - no sequential parents', function (t) {
 
 	var path = '/no/seq/parents/child';
 
+	var toDelete;
 
 	function runPipeline(createdPath) {
 
@@ -552,7 +615,10 @@ mod_tape.test('createWithEmptyParents - no sequential parents', function (t) {
 			checkSequentialChild
 		]}, function (pErr, results) {
 			t.error(pErr);
-			zkc.close();
+			cleanupNodes(zkc, toDelete, function (cleanupErr) {
+				t.error(cleanupErr);
+				zkc.close();
+			});
 		});
 	}
 
@@ -562,6 +628,7 @@ mod_tape.test('createWithEmptyParents - no sequential parents', function (t) {
 		    { flags: ['SEQUENTIAL'] },
 		    function (err, sequentialPath) {
 			t.error(err);
+			toDelete = pathsLeadingTo(sequentialPath);
 			runPipeline(sequentialPath);
 		});
 	});
