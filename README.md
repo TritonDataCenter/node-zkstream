@@ -17,6 +17,7 @@ Parameters:
    - `address`: a String, hostname or IP to connect to
    - `port`: an optional Number (default: 2181)
    - `sessionTimeout`: an optional Number (default: 30000 ms)
+   - `collector`: an optional Object, artedi collector
 
 ### `Client#close([cb])`
 

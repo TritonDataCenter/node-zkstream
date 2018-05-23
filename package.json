@@ -1,6 +1,6 @@
 {
   "name": "zkstream",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "",
   "repository": {
     "type": "git",
@@ -8,6 +8,7 @@
   },
   "main": "lib/index.js",
   "dependencies": {
+    "artedi": "1.3.0",
     "assert-plus": "^1.0.0",
     "bunyan": "^1.8.10",
     "cueball": "^2.2.7",
