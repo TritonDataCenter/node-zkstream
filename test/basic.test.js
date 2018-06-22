@@ -102,6 +102,7 @@ mod_tape.test('simple connect and ping', function (t) {
 	});
 
 	zkc.on('connect', function () {
+		t.ok(zkc.isConnected());
 		zkc.ping(function (err) {
 			t.error(err);
 			pinged = true;
@@ -121,6 +122,7 @@ mod_tape.test('double ping', function (t) {
 
 	zkc.on('close', function () {
 		t.strictEqual(pinged, 2);
+		t.notOk(zkc.isConnected());
 		t.end();
 	});
 
