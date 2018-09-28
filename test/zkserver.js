@@ -3,7 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
- * Copyright (c) 2016, Joyent, Inc.
+ * Copyright (c) 2018, Joyent, Inc.
  */
 
 module.exports = { ZKServer: ZKServer };
@@ -70,7 +70,9 @@ function ZKServer(opts) {
 mod_util.inherits(ZKServer, mod_fsm.FSM);
 
 ZKServer.prototype.cli = function () {
-	mod_assert.strictEqual(this.getState(), 'running');
+	if (!(this.isInState('running') || this.isInState('testing'))) {
+		throw (new Error('Invalid state for cli()'));
+	}
 
 	var opts = {};
 	opts.cwd = this.zk_tmpdir;
@@ -136,7 +138,9 @@ ZKServer.prototype.cli = function () {
 					shifted = true;
 				}
 			}
-			if (/^\[zk: localhost.*\] /.test(
+			while (output[output.length - 1] === '')
+				output.pop();
+			while (/^\[zk: localhost.*\] /.test(
 			    output[output.length - 1])) {
 				output.pop();
 			}
@@ -261,27 +265,23 @@ ZKServer.prototype.state_findkids = function (S) {
 
 ZKServer.prototype.state_testing = function (S) {
 	var self = this;
-	var cmd = this.zk_cmd.replace('zkServer', 'zkCli');
+
+	this.zk_lastError = undefined;
 
 	S.timeout(10000, function () {
-		self.zk_lastError = new Error('Timeout');
+		if (self.zk_lastError === undefined)
+			self.zk_lastError = new Error('Timeout');
 		S.gotoState('error');
 	});
 
-	S.timeout(1000, function () {
-		var kid = mod_cproc.spawn(cmd, [
-		    '-server', 'localhost:' + self.zk_server.clientPort,
-		    'ls', '/']);
-		S.on(kid, 'close', function (code) {
-			if (code === 0) {
-				S.gotoState('running');
-			} else {
-				self.zk_lastError = new Error(
-				    'Testing command exited with status ' +
-				    code);
-				S.gotoState('error');
+	S.interval(1000, function () {
+		self.cli('ls', '/', S.callback(function (err) {
+			if (err) {
+				self.zk_lastError = err;
+				return;
 			}
-		});
+			S.gotoState('running');
+		}));
 	});
 
 	S.on(self.zk_kid, 'close', function (code) {
