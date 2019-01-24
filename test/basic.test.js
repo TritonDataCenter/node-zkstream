@@ -829,6 +829,129 @@ mod_tape.test('children watcher no node', function (t) {
 	});
 });
 
+mod_tape.test('deletion watcher seq: delete, create, delete', function (t) {
+	var zkc = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	var evts = [];
+	var d = new Buffer('hi', 'ascii');
+
+	mod_vasync.waterfall([
+		function (cb) {
+			zkc.on('connect', cb);
+		},
+		function (cb) {
+			zkc.create('/delseq', d, {}, cb);
+		},
+		function (_, cb) {
+			var w = zkc.watcher('/delseq');
+			w.on('deleted', function () {
+				evts.push('deleted');
+			});
+			w.on('created', function () {
+				if (evts.length === 0)
+					cb();
+				evts.push('created');
+			});
+		},
+		function (cb) {
+			zkc.delete('/delseq', -1, cb);
+		},
+		function (cb) {
+			zkc.create('/delseq', d, {}, cb);
+		},
+		function (_, cb) {
+			zkc.delete('/delseq', -1, cb);
+		},
+		function (cb) {
+			wait(t, 'events collected', 30000, function () {
+				return (evts.length >= 4);
+			}, cb);
+		},
+		function (cb) {
+			t.deepEqual(evts, ['created', 'deleted', 'created',
+			    'deleted']);
+			cb();
+		}
+	], function (err) {
+		t.error(err);
+		zkc.close();
+	});
+});
+
+mod_tape.test('data watcher seq: set, delete, create, set, delete',
+    function (t) {
+	var zkc = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	var evts = [];
+	var d = new Buffer('hi', 'ascii');
+	var d2 = new Buffer('hi2', 'ascii');
+
+	mod_vasync.waterfall([
+		function (cb) {
+			zkc.on('connect', cb);
+		},
+		function (cb) {
+			zkc.create('/dataseq', d, {}, cb);
+		},
+		function (_, cb) {
+			var w = zkc.watcher('/dataseq');
+			w.on('dataChanged', function (data) {
+				if (evts.length === 0)
+					cb();
+				evts.push(data.toString());
+			});
+		},
+		function (cb) {
+			zkc.set('/dataseq', d2, -1, cb);
+		},
+		function (_, cb) {
+			zkc.delete('/dataseq', -1, cb);
+		},
+		function (cb) {
+			zkc.create('/dataseq', d, {}, cb);
+		},
+		function (_, cb) {
+			wait(t, 'events collected', 30000, function () {
+				return (evts.length >= 2);
+			}, cb);
+		},
+		function (cb) {
+			zkc.set('/dataseq', d2, -1, cb);
+		},
+		function (_, cb) {
+			zkc.delete('/dataseq', -1, cb);
+		},
+		function (cb) {
+			wait(t, 'events collected', 30000, function () {
+				return (evts.length >= 4);
+			}, cb);
+		},
+		function (cb) {
+			t.deepEqual(evts, ['hi', 'hi2', 'hi', 'hi2']);
+			cb();
+		}
+	], function (err) {
+		t.error(err);
+		zkc.close();
+	});
+});
+
 mod_tape.test('session resumption with watcher', function (t) {
 	var connected = 0;
 	var closed = 0;
@@ -917,6 +1040,117 @@ mod_tape.test('session resumption with watcher', function (t) {
 			});
 		});
 	}
+});
+
+mod_tape.test('session resumption new watcher race (#39)', function (t) {
+	var closed = 0;
+	var counts = {};
+
+	function incrCount(k) {
+		if (counts[k] === undefined)
+			counts[k] = 0;
+		++counts[k];
+	}
+
+	var zkc1 = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	var zkc2 = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	var ev1 = [];
+	zkc1.on('connect', ev1.push.bind(ev1, 'connect'));
+	zkc1.on('session', ev1.push.bind(ev1, 'session'));
+	zkc1.on('expire', ev1.push.bind(ev1, 'expire'));
+	zkc1.on('disconnect', ev1.push.bind(ev1, 'disconnect'));
+
+	zkc1.on('close', function () {
+		t.deepEqual(ev1,
+		    ['session', 'connect', 'disconnect', 'connect']);
+		if (++closed >= 2)
+			t.end();
+	});
+
+	zkc2.on('close', function () {
+		if (++closed >= 2)
+			t.end();
+	});
+
+	mod_vasync.waterfall([
+		function (cb) {
+			mod_vasync.parallel({
+				funcs: [
+					function (ccb) {
+						zkc1.once('connect', ccb);
+					},
+					function (ccb) {
+						zkc2.once('connect', ccb);
+					}
+				]
+			}, cb);
+		},
+		function (_, cb) {
+			zkc1.once('connect', cb);
+
+			zkc1.watcher('/race1').on('created',
+			    incrCount.bind(this, 'race1'));
+
+			var sock = zkc1.getSession().getConnection().zcf_socket;
+			t.ok(sock.listeners('error').length > 0);
+			sock.emit('error', new Error('I killed it'));
+			sock.destroy();
+
+			zkc1.watcher('/race2').on('created',
+			    incrCount.bind(this, 'race2'));
+
+			setImmediate(function () {
+				zkc1.watcher('/race3').on('created',
+				    incrCount.bind(this, 'race3'));
+			});
+		},
+		function (cb) {
+			var d = new Buffer('hi there', 'ascii');
+			mod_vasync.parallel({
+				funcs: [
+					function (ccb) {
+						zkc2.create('/race1', d,
+						    {}, ccb);
+					},
+					function (ccb) {
+						zkc2.create('/race2', d,
+						    {}, ccb);
+					},
+					function (ccb) {
+						zkc2.create('/race3', d,
+						    {}, ccb);
+					}
+				]
+			}, cb);
+		},
+		function (_, cb) {
+			wait(t, 'watchers have fired', 30000,
+			    function () {
+				return (counts.race1 == 1 &&
+				    counts.race2 == 1 &&
+				    counts.race3 == 1);
+			}, cb);
+		},
+		function (cb) {
+			t.equal(zkc1.getSession().
+			    listeners('stateChanged').length, 1);
+			zkc1.close();
+			zkc2.close();
+			cb();
+		}
+	], function (err) {
+		t.error(err);
+	});
 });
 
 mod_tape.test('session resumption with watcher (ping timeout)', function (t) {
@@ -1068,7 +1302,8 @@ mod_tape.test('connect failure: immediate close', function (t) {
 });
 
 mod_tape.test('stop awful zk server', function (t) {
-	zk.close();
-	zk = undefined;
-	t.end();
+	zk.close(function () {
+		zk = undefined;
+		t.end();
+	});
 });
