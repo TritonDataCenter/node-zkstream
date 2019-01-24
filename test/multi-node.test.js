@@ -11,6 +11,7 @@ const mod_zk = require('./zkserver');
 const mod_zkc = require('../lib/index');
 const mod_net = require('net');
 const mod_bunyan = require('bunyan');
+const mod_vasync = require('vasync');
 
 var log = mod_bunyan.createLogger({
 	name: 'zkstream-test',
@@ -144,7 +145,10 @@ mod_tape.test('write visibility', function (t) {
 		zkc1.create('/foo', data, {}, function (err, path) {
 			t.error(err);
 			t.strictEqual(path, '/foo');
-			get();
+			zkc1.sync('/foo', function (err2) {
+				t.error(err2);
+				get();
+			});
 		});
 	}
 
@@ -197,24 +201,32 @@ mod_tape.test('cross-server data watch', function (t) {
 	});
 
 	function setup() {
-		var watchFired = false;
-		zkc1.watcher('/foo').on('dataChanged',
-		    function (newData, stat) {
-			if (newData.toString() === 'testing') {
-				t.ok(stat.version > 0);
-				watchFired = true;
-			}
-		});
-		var data = new Buffer('testing');
-		zkc2.set('/foo', data, 0, function (err) {
+		mod_vasync.parallel({
+			funcs: [watch1, write2]
+		}, function (err) {
 			t.error(err);
-			zkc2.sync('/foo', function (err2) {
-				t.error(err2);
-				t.ok(watchFired);
-				zkc1.close();
-				zkc2.close();
-			});
+			zkc1.close();
+			zkc2.close();
 		});
+		function watch1(cb) {
+			zkc1.watcher('/foo').on('dataChanged',
+			    function (newData, stat) {
+				if (newData.toString() === 'testing') {
+					t.ok(stat.version > 0);
+					cb();
+				}
+			});
+		}
+		function write2(cb) {
+			var data = new Buffer('testing');
+			zkc2.set('/foo', data, 0, function (err) {
+				t.error(err);
+				zkc2.sync('/foo', function (err2) {
+					t.error(err2);
+					cb();
+				});
+			});
+		}
 	}
 });
 

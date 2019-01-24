@@ -13,6 +13,9 @@ const mod_net = require('net');
 const mod_bunyan = require('bunyan');
 const mod_util = require('util');
 const mod_vasync = require('vasync');
+const mod_assert = require('assert-plus');
+
+var wait = require('./utils').wait;
 
 var log = mod_bunyan.createLogger({
 	name: 'zkstream-test',
@@ -21,63 +24,6 @@ var log = mod_bunyan.createLogger({
 
 var zk;
 var connCount = 0;
-
-mod_tape.test('connect failure: refused', function (t) {
-	var zkc = new mod_zkc.Client({
-		log: log,
-		address: '127.0.0.1',
-		port: 2181
-	});
-
-	zkc.on('connect', function (st) {
-		t.fail();
-	});
-
-	zkc.on('failed', function () {
-		zkc.close();
-	});
-
-	zkc.on('close', function () {
-		t.end();
-	});
-});
-
-mod_tape.test('start awful zk server', function (t) {
-	zk = mod_net.createServer();
-	zk.on('connection', function (sock) {
-		++connCount;
-		sock.destroy();
-	});
-	zk.listen(2181, function () {
-		t.end();
-	});
-});
-
-mod_tape.test('connect failure: immediate close', function (t) {
-	var zkc = new mod_zkc.Client({
-		log: log,
-		address: '127.0.0.1',
-		port: 2181
-	});
-
-	zkc.on('close', function () {
-		t.end();
-	});
-
-	zkc.on('connect', function () {
-		t.fail();
-	});
-
-	zkc.on('failed', function () {
-		zkc.close();
-	});
-});
-
-mod_tape.test('stop awful zk server', function (t) {
-	zk.close();
-	zk = undefined;
-	t.end();
-});
 
 mod_tape.test('start zk server', function (t) {
 	zk = new mod_zk.ZKServer();
@@ -678,25 +624,46 @@ mod_tape.test('data watcher', function (t) {
 		t.end();
 	});
 
+	/* This data should have been put in /foo by a previous test */
 	var data = new Buffer('hi there', 'ascii');
 	var count = 0;
+	var presetCount;
 
-	zkc.on('connect', function () {
+	mod_vasync.waterfall(
+	    [connect, makeWatcher, setValue, check],
+	    function (err) {
+		t.error(err);
+		zkc.close();
+	});
+
+	function connect(cb) {
+		zkc.on('connect', cb);
+	}
+
+	function makeWatcher(cb) {
 		zkc.watcher('/foo').on('dataChanged', function (newData) {
 			t.ok(Buffer.isBuffer(newData));
 			t.strictEqual(newData.toString('base64'),
 			    data.toString('base64'));
-			if (++count === 1) {
-				data = new Buffer('hi', 'ascii');
-				console.log('doing set');
-				zk.cli('set', '/foo', 'hi', function (err) {
-					t.error(err);
-					t.strictEqual(count, 2);
-					zkc.close();
-				});
-			}
+			if (++count === 1)
+				cb();
 		});
-	});
+	}
+
+	function setValue(cb) {
+		data = new Buffer('hi', 'ascii');
+		presetCount = count;
+		zk.cli('set', '/foo', 'hi', function (err) {
+			t.error(err);
+			cb();
+		});
+	}
+
+	function check(cb) {
+		wait(t, 'watcher has fired', 30000,
+		    function () { return (count > presetCount); },
+		    cb);
+	}
 });
 
 mod_tape.test('delete it while watching', function (t) {
@@ -1047,4 +1014,61 @@ mod_tape.test('stop zk server', function (t) {
 			t.end();
 	});
 	zk.stop();
+});
+
+mod_tape.test('connect failure: refused', function (t) {
+	var zkc = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	zkc.on('connect', function (st) {
+		t.fail();
+	});
+
+	zkc.on('failed', function () {
+		zkc.close();
+	});
+
+	zkc.on('close', function () {
+		t.end();
+	});
+});
+
+mod_tape.test('start awful zk server', function (t) {
+	zk = mod_net.createServer();
+	zk.on('connection', function (sock) {
+		++connCount;
+		sock.destroy();
+	});
+	zk.listen(2181, function () {
+		t.end();
+	});
+});
+
+mod_tape.test('connect failure: immediate close', function (t) {
+	var zkc = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	zkc.on('connect', function () {
+		t.fail();
+	});
+
+	zkc.on('failed', function () {
+		zkc.close();
+	});
+});
+
+mod_tape.test('stop awful zk server', function (t) {
+	zk.close();
+	zk = undefined;
+	t.end();
 });
