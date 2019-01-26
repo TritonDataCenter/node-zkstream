@@ -40,10 +40,11 @@ var connCb;
 mod_tape.test('attachAndSendCR race', function (t) {
 	var WAIT_BEFORE_CLOSE = 10000;
 	var WAIT_BEFORE_RELISTEN = 13000;
-	var TEST_TIMEOUT = 25000;
+	var WAIT_BEFORE_END = 5000;
 
 	var zk1 = mod_net.createServer();
 	var zk2 = mod_net.createServer();
+	var conns = [];
 
 	zk1.listen(2181, function () {
 		log.trace('zk server 1 - listening');
@@ -54,6 +55,8 @@ mod_tape.test('attachAndSendCR race', function (t) {
 					zk1.listen(2181, function () {
 						log.trace('zk server 1 ' +
 						    '- listening');
+						setTimeout(killTest,
+						    WAIT_BEFORE_END);
 					});
 				}, WAIT_BEFORE_RELISTEN);
 			});
@@ -61,6 +64,13 @@ mod_tape.test('attachAndSendCR race', function (t) {
 	});
 	zk2.listen(2182, function () {
 		log.trace('zk server 2 - listening');
+	});
+
+	zk1.on('connection', function (conn) {
+		conns.push(conn);
+	});
+	zk2.on('connection', function (conn) {
+		conns.push(conn);
 	});
 
 	var zkc = new mod_zkc.Client({
@@ -74,16 +84,22 @@ mod_tape.test('attachAndSendCR race', function (t) {
 		} ]
 	});
 
+	zkc.on('close', function () {
+		t.end();
+	});
+
 	zkc.on('failed', function () {
 		log.trace('received failed event');
 	});
 
-	setTimeout(function () {
+	function killTest() {
 		zk1.close();
 		zk2.close();
 		zkc.close();
-		t.end();
-	}, TEST_TIMEOUT);
+		conns.forEach(function (conn) {
+			conn.destroy();
+		});
+	}
 });
 
 mod_tape.test('start awful zk server', function (t) {
@@ -269,9 +285,10 @@ mod_tape.test('calling before ready (handshaking)', function (t) {
 });
 
 mod_tape.test('stop awful zk server', function (t) {
-	zk.close();
-	zk = undefined;
-	t.end();
+	zk.close(function () {
+		zk = undefined;
+		t.end();
+	});
 });
 
 mod_tape.test('start fake zk server', function (t) {
@@ -344,7 +361,8 @@ mod_tape.test('handshake failure: bad version', function (t) {
 });
 
 mod_tape.test('stop fake zk server', function (t) {
-	zk.close();
-	zk = undefined;
-	t.end();
+	zk.close(function () {
+		zk = undefined;
+		t.end();
+	});
 });
