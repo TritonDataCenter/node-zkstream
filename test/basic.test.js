@@ -1242,6 +1242,77 @@ mod_tape.test('session resumption with watcher (ping timeout)', function (t) {
 	}
 });
 
+mod_tape.test('session resumption with watcher (cod)', function (t) {
+	var connected = 0;
+	var closed = 0;
+
+	var zkc1 = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	var zkc2 = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	var ev2 = [];
+	zkc2.on('connect', ev2.push.bind(ev2, 'connect'));
+	zkc2.on('session', ev2.push.bind(ev2, 'session'));
+	zkc2.on('expire', ev2.push.bind(ev2, 'expire'));
+	zkc2.on('disconnect', ev2.push.bind(ev2, 'disconnect'));
+
+	zkc1.on('close', function () {
+		if (++closed >= 2)
+			t.end();
+	});
+
+	zkc2.on('close', function () {
+		t.deepEqual(ev2,
+		    ['session', 'connect', 'disconnect', 'connect']);
+		if (++closed >= 2)
+			t.end();
+	});
+
+	zkc1.on('connect', function () {
+		if (++connected == 2) {
+			create();
+		}
+	});
+
+	zkc2.on('connect', function () {
+		if (++connected == 2) {
+			create();
+		}
+	});
+
+	function create() {
+		var w = zkc2.watcher('/foo4');
+		function onCreated() {
+			zkc2.close();
+		}
+		w.on('created', onCreated);
+		zkc2.sync('/foo4', function (err) {
+			t.error(err);
+			ready();
+		});
+	}
+
+	function ready() {
+		var sock = zkc2.getSession().getConnection().zcf_socket;
+		t.ok(sock.listeners('error').length > 0);
+		sock.destroy();
+
+		var data = new Buffer('hello again');
+		zkc1.create('/foo4', data, {}, function (err) {
+			t.error(err);
+			zkc1.close();
+		});
+	}
+});
+
 mod_tape.test('stop zk server', function (t) {
 	zk.on('stateChanged', function (st) {
 		if (st === 'stopped')
