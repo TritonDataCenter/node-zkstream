@@ -1313,6 +1313,53 @@ mod_tape.test('session resumption with watcher (cod)', function (t) {
 	}
 });
 
+mod_tape.test('clean close cancelled request error (#46)', function (t) {
+	var zkc2 = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	var ev2 = [];
+	zkc2.on('connect', ev2.push.bind(ev2, 'connect'));
+	zkc2.on('session', ev2.push.bind(ev2, 'session'));
+	zkc2.on('expire', ev2.push.bind(ev2, 'expire'));
+	zkc2.on('disconnect', ev2.push.bind(ev2, 'disconnect'));
+
+	zkc2.on('close', function () {
+		t.deepEqual(ev2,
+		    ['session', 'connect', 'disconnect']);
+		t.end();
+	});
+
+	zkc2.once('connect', function () {
+		var conn = zkc2.getSession().getConnection();
+		var sock = conn.zcf_socket;
+		t.ok(sock.listeners('error').length > 0);
+
+		/*
+		 * We need to make sure we don't receive the reply to the
+		 * create() request below before we close and cut off the
+		 * connection, so we're going to unpipe() the socket here
+		 * and stop us from reading any data from it.
+		 */
+		sock.unpipe();
+
+		var data = new Buffer('hello again');
+		zkc2.create('/foo5', data, {}, function (err) {
+			t.ok(err);
+			t.ok(/Connection closed\./.test(err.toString()));
+			zkc2.close();
+		});
+		setImmediate(function () {
+			conn.close();
+		});
+		setTimeout(function () {
+			sock.emit('error', new Error('dead'));
+		}, 1000);
+	});
+});
+
 mod_tape.test('stop zk server', function (t) {
 	zk.on('stateChanged', function (st) {
 		if (st === 'stopped')
