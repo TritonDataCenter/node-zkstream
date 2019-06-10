@@ -248,6 +248,34 @@ mod_tape.test('create a new node', function (t) {
 	});
 });
 
+mod_tape.test('create a new node with no data (null)', function (t) {
+	var zkc = new mod_zkc.Client({
+		log: log,
+		address: '127.0.0.1',
+		port: 2181
+	});
+
+	zkc.on('close', function () {
+		t.end();
+	});
+
+	zkc.on('connect', function () {
+		var d = new Buffer(0);
+		zkc.create('/foonull', d, {}, function (err, path) {
+			t.error(err);
+			t.strictEqual(path, '/foonull');
+			zkc.get('/foonull', function (err2, data) {
+				t.error(err2);
+				t.strictEqual(data.length, 0);
+				zkc.delete('/foonull', -1, function (err3) {
+					t.error(err3);
+					zkc.close();
+				});
+			});
+		});
+	});
+});
+
 // Helper used by the createWithEmptyParents API tests
 
 /*
